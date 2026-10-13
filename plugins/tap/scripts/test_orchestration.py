@@ -66,6 +66,7 @@ def test_error_report():
 def test_gateway_assets():
     orchestrator = (ROOT / "skills/tap-orchestration/SKILL.md").read_text(encoding="utf-8")
     assert "Claude Design (canvas)" in orchestrator and "Không có fallback HTML." in orchestrator
+    assert "Sơ đồ nối màn hình bắt buộc" in orchestrator and "T<số bước>" in orchestrator
     assert "build_error_report.py" in orchestrator
     assert "MCP preflight" in orchestrator and "mcp_pref.py" in orchestrator
     assert "không còn hỗ trợ capability giỏ hàng" in orchestrator and "clarificationCount" in orchestrator

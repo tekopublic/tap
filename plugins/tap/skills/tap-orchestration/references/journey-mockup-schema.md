@@ -11,7 +11,7 @@ Mọi scenario là **fixture-only**: cấm PII, secret, MCP preview URL và payl
 - `flowMap.lanes[]`: `{ id, label, kind, description }`, kind là `happy-path`, `empty-state`, `error-fallback`, hoặc `alternate`.
 - `flowMap.transitions[]`: `{ id, fromScreenId, toScreenId, laneId, trigger, ctaLabel, expectedResult, guard?, fallback? }`; fallback, nếu có, cũng là screen ID.
 
-Scenario là contract nguồn cho mockup Claude Design canvas: mockup phải thể hiện flow map, artboard Screen 01…, lanes, CTA text và nhãn `screenId`, `laneId`, `transitionId`. `scripts/build_journey_mockup.py` là legacy, không dùng để sinh mockup.
+Scenario là contract nguồn cho mockup Claude Design canvas: mockup phải thể hiện flow map, artboard Screen 01…, lanes, CTA text và nhãn `screenId`, `laneId`, `transitionId`. Mỗi transition được vẽ thành mũi tên có hướng giữa hai artboard, nhãn `T<số bước> · ctaLabel` (số bước theo thứ tự trong `flowMap.transitions`), màu theo lane: happy-path xanh lá nét liền, empty-state vàng nét đứt, error-fallback đỏ nét đứt, alternate xám/tím; có legend và khung Flow map đầu canvas. `scripts/build_journey_mockup.py` là legacy, không dùng để sinh mockup.
 
 ## Ví dụ v2: 4 screens, 3 lanes
 

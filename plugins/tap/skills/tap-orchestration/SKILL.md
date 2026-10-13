@@ -41,6 +41,12 @@ Sau câu trả lời, không hỏi UX clarification lần hai: hợp nhất câu
 Với UI route, chuyển `PLANNING/MOCKUP_REVIEW`, tạo fixture-only scenario theo [schema](references/journey-mockup-schema.md) làm contract, rồi dựng mockup trực quan từ contract đó:
 
 - **Đầu ra DUY NHẤT hợp lệ: Claude Design (canvas)** (source `claude-design`). Đây là loại artifact "Claude Design" hiển thị trong chat (thẻ ghi "Claude Design"), KHÔNG phải file `.html`/"Code · HTML". Mỗi screen là một artboard đánh số `01 · <tên>` trên canvas; có flow map, lanes, CTA/transition, assumptions; bám layout storefront thật (header, chat sidebar, display panel) và token `get_theme` của tenant; dữ liệu fixture có nhãn.
+- **Sơ đồ nối màn hình bắt buộc (mockup nhiều màn hình):**
+  - Artboard `01 · tên`, `02 · tên`… xếp trái → phải theo luồng chính; mỗi `transition` trong contract là **một mũi tên có hướng** nối artboard nguồn tới artboard đích, kèm nhãn `T<số bước> · "<ctaLabel>"` (T1, T2… theo thứ tự trong `flowMap.transitions`).
+  - Màu/kiểu nét theo lane: happy-path = nét liền xanh lá; empty-state = nét đứt vàng; error-fallback = nét đứt đỏ, nối về screen fallback; alternate = nét liền xám/tím. Có chú giải (legend) ở góc canvas.
+  - Đầu canvas có khung **Flow map** thu nhỏ: các ô số màn hình nối bằng cùng mũi tên/màu/nhãn `T<n>`, để xem tổng thể trước khi xem từng artboard.
+  - Màn hình đã có và không sửa vẽ dạng khung mờ ghi "giữ nguyên", vẫn nối mũi tên vào.
+  - Số mũi tên = số `transitions`; mỗi `screenId`/`transitionId` có đúng một artboard/mũi tên. Nếu công cụ không có đối tượng nối chuẩn thì dùng đường kẻ + đầu mũi tên thường, vẫn phải đủ màu, nhãn và số bước.
 - **Không chờ người dùng yêu cầu.** Không được tạo file HTML, HTML artifact (tool Artifact), Markdown hay ảnh làm mockup rồi hỏi "bạn có muốn Claude Design không". Tạo thẳng Claude Design ngay lượt đầu của `MOCKUP_REVIEW`.
 - **Không có fallback HTML.** Nếu môi trường không có khả năng tạo Claude Design (ví dụ Claude Code CLI/VS Code, không thấy tool/skill Claude Design), dừng ở `BLOCKED`: báo rõ "cần chạy trong Claude Desktop/claude.ai để tạo Claude Design canvas", không tự thay bằng HTML.
 - **Cấm** dùng `scripts/build_journey_mockup.py` (legacy) hoặc template HTML dựng sẵn. Không gọi MCP preview/save/publish để tạo mockup. V1 single-screen vẫn hợp lệ.
