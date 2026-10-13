@@ -49,9 +49,18 @@ def test_builder_v1_v2():
         html = (root / "v2.html").read_text(encoding="utf-8")
         for text in ("Flow map", "Happy path", "Empty state", "Error/Fallback", "transitionId", "CTA") : assert text in html
 
+def test_mcp_pref():
+    with tempfile.TemporaryDirectory() as tmp:
+        f = str(Path(tmp) / "p.json"); cmd = [sys.executable, str(ROOT / "scripts/mcp_pref.py"), "--file", f]
+        out = lambda *a: subprocess.run(cmd + list(a), text=True, capture_output=True, check=True).stdout
+        assert json.loads(out("get"))["server"] is None
+        out("set", "phongvu-tap-mcp"); assert json.loads(out("get"))["server"] == "phongvu-tap-mcp"
+        out("clear"); assert json.loads(out("get"))["server"] is None
+
 def test_gateway_assets():
     orchestrator = (ROOT / "skills/tap-orchestration/SKILL.md").read_text(encoding="utf-8")
-    assert "Bắt buộc Claude Design" in orchestrator and "--fallback-reason" in orchestrator
+    assert "Claude Design (canvas)" in orchestrator and "Không có fallback HTML." in orchestrator
+    assert "MCP preflight" in orchestrator and "mcp_pref.py" in orchestrator
     assert "không còn hỗ trợ capability giỏ hàng" in orchestrator and "clarificationCount" in orchestrator
     assert not (ROOT / "skills" / ("tap-shopper" + "-cart")).exists()
     for command in (ROOT / "commands").glob("*.md"):
@@ -60,4 +69,4 @@ def test_gateway_assets():
         text = (ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8"); assert "Delegated-by: tap-orchestration" in text and "workItemId" in text
 
 if __name__ == "__main__":
-    test_state_and_clarification(); test_builder_v1_v2(); test_gateway_assets(); print("✔ TAP orchestration tests passed")
+    test_state_and_clarification(); test_builder_v1_v2(); test_mcp_pref(); test_gateway_assets(); print("✔ TAP orchestration tests passed")

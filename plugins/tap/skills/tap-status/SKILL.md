@@ -35,6 +35,10 @@ Xuất bảng tổng hợp cuối phiên với các thông tin:
 | Theme layout hiện tại | `layoutCode` | - |
 | Theme token màu chủ đạo | `color.primary` | - |
 
+## MCP Đang Dùng
+
+In thêm bảng: server đang chọn (`scripts/mcp_pref.py get`) và môi trường LOCAL/PROD; các server TAP khác khả dụng; connector TAP đang lỗi (Reconnect/Connect) nếu thấy. Người dùng muốn đổi thì nói tên server, gateway lưu lại.
+
 ## Đối Chiếu Danh Sách Công Cụ MCP
 
 Sau khi đọc xong, so sánh danh sách tool đang thấy trong phiên với `tool-index.md`:

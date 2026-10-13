@@ -8,6 +8,18 @@ user-invocable: true
 
 Đây là entrypoint duy nhất cho yêu cầu TAP từ chat hoặc slash alias. Đọc `tap-core` trước mọi MCP operation. Không worker nào được tự nhận yêu cầu người dùng.
 
+## 0. MCP preflight (mỗi phiên, trước triage)
+
+1. Đọc lựa chọn đã lưu: `python3 scripts/mcp_pref.py get`.
+2. Quét tool trong phiên theo hậu tố (`*ping`, `*list_screens`, `*publish_screen`, `*describe_display_format`) rồi gom theo server. Server chỉ được coi là "server TAP" khi có đủ nhóm tool này.
+3. Quyết định:
+   - **Không có server TAP nào**: dừng ở `BLOCKED` và báo chủ động: "Chưa kết nối MCP TAP. Vào Connectors → Connect (hoặc Reconnect nếu hiện 'Server not responding'/'Sign-in expired'), rồi nhắn lại." Liệt kê các connector có tên gần giống nhưng chưa kết nối nếu thấy. Không gọi tool, không đoán.
+   - **Có đúng 1 server TAP**: dùng luôn, lưu bằng `mcp_pref.py set <server>`.
+   - **Có nhiều server TAP và chưa có lựa chọn đã lưu (hoặc server đã lưu không còn trong phiên)**: hỏi người dùng chọn một, nêu môi trường LOCAL/PROD của từng server theo `tap-core/references/targets.md`, rồi lưu bằng `mcp_pref.py set`.
+   - **Đã lưu và server còn trong phiên**: dùng luôn, không hỏi lại.
+4. Người dùng nói "đổi MCP" / "dùng <tên server>" ở bất kỳ lúc nào: chạy lại `mcp_pref.py set`. `/tap:status` hiển thị server đang dùng và các server TAP khác khả dụng.
+5. Ghi `server` đã chọn vào work item và truyền cho mọi worker; worker không tự chọn server khác.
+
 ## 1. Triage và retirement
 
 1. Create/resume work item trước mọi route; ghi alias, intent, scope, target/risk, `clarificationCount` (0 hoặc 1), assumptions và phase. Chỉ gateway được transition state/phase, parse approval hay kết thúc response.
@@ -24,9 +36,10 @@ Sau câu trả lời, không hỏi UX clarification lần hai: hợp nhất câu
 
 Với UI route, chuyển `PLANNING/MOCKUP_REVIEW`, tạo fixture-only scenario theo [schema](references/journey-mockup-schema.md) làm contract, rồi dựng mockup trực quan từ contract đó:
 
-- **Bắt buộc Claude Design** (source `claude-design`): tạo artifact Claude Design dạng canvas, mỗi screen là một artboard đánh số `01 · <tên>`; artboard đầu hoặc tiêu đề canvas thể hiện flow map, lanes, CTA/transition và assumptions. Giao diện bám layout storefront thật (header, chat sidebar, display panel) và token `get_theme` của tenant; dữ liệu là fixture/placeholder có nhãn.
-- **Fallback chỉ khi môi trường không có Claude Design** (Claude Code CLI/VS Code): publish HTML artifact bằng tool Artifact (source `html-artifact`), load skill `artifact-design` trước, cùng chuẩn thiết kế như trên (artboard theo screen, theme tenant). Phải ghi `--fallback-reason` khi record.
-- **Cấm** dùng `scripts/build_journey_mockup.py` (legacy, không dùng nữa) hoặc template HTML dựng sẵn để sinh mockup. Không gọi MCP preview/save/publish để tạo mockup. V1 single-screen vẫn hợp lệ.
+- **Đầu ra DUY NHẤT hợp lệ: Claude Design (canvas)** (source `claude-design`). Đây là loại artifact "Claude Design" hiển thị trong chat (thẻ ghi "Claude Design"), KHÔNG phải file `.html`/"Code · HTML". Mỗi screen là một artboard đánh số `01 · <tên>` trên canvas; có flow map, lanes, CTA/transition, assumptions; bám layout storefront thật (header, chat sidebar, display panel) và token `get_theme` của tenant; dữ liệu fixture có nhãn.
+- **Không chờ người dùng yêu cầu.** Không được tạo file HTML, HTML artifact (tool Artifact), Markdown hay ảnh làm mockup rồi hỏi "bạn có muốn Claude Design không". Tạo thẳng Claude Design ngay lượt đầu của `MOCKUP_REVIEW`.
+- **Không có fallback HTML.** Nếu môi trường không có khả năng tạo Claude Design (ví dụ Claude Code CLI/VS Code, không thấy tool/skill Claude Design), dừng ở `BLOCKED`: báo rõ "cần chạy trong Claude Desktop/claude.ai để tạo Claude Design canvas", không tự thay bằng HTML.
+- **Cấm** dùng `scripts/build_journey_mockup.py` (legacy) hoặc template HTML dựng sẵn. Không gọi MCP preview/save/publish để tạo mockup. V1 single-screen vẫn hợp lệ.
 
 Sau review, record artifact path/URL, fingerprint, schema version, screen/lane/transition IDs trong work item. Với write, tạo plan gồm objective, operations, target, backup/rollback, tests và fingerprint; chuyển `WAITING_FOR_PLAN_APPROVAL`. Chỉ **Đồng ý triển khai** gắn approval fingerprint. Không approval lại write reversible đã liệt kê; R3/không đảo ngược/payment/external/missing identifier vẫn gate riêng.
 

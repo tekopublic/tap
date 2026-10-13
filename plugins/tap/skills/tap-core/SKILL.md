@@ -15,10 +15,9 @@ Skill nền tảng nội bộ cho mọi tương tác với TAP MCP Server. Mọi
 ## 2. Target Guard (Bảo Vệ Môi Trường)
 - **Bước 0**: Luôn gọi `ping` để xác thực phiên, lấy thông tin account/caller và ghi `server name + ping evidence` vào work item/plan.
 - Tra cứu tiền tố tên server trong [targets.md](file://skills/tap-core/references/targets.md):
-  - **PROD** (`phongvu-tap-mcp` hoặc domain prod): Trong MVP, cờ `prod_writes: blocked` có hiệu lực. **DỪNG NGAY** nếu yêu cầu có thao tác ghi (R1-R3).
-  - **LOCAL** (`agentic-storefront-mcp` hoặc `localhost:8931`): Cho phép ghi nếu có xác nhận.
-- **TÊN LẠ**: Xử lý an toàn như PROD; không suy diễn LOCAL/PROD từ alias hoặc desktop bridge. Chỉ cho write khi target evidence từ `ping` và user-selected server nhất quán.
-- Nếu phát hiện $\ge 2$ server TAP trong phiên: Dừng lại và hỏi người dùng chỉ định server muốn dùng.
+  - **PROD** (`phongvu-tap-mcp` hoặc domain prod) và **LOCAL** (`agentic-storefront-mcp` hoặc `localhost:8931`): đều cho phép ghi. Việc chọn server do người dùng quyết một lần ở MCP preflight của `tap-orchestration` và được lưu lại; không hỏi lại "có ghi lên PROD không" cho mỗi thao tác. An toàn vẫn do plan approval + backup (mục 4) và thẻ môi trường nêu rõ PROD/LOCAL trong plan.
+- **TÊN LẠ**: Không suy diễn LOCAL/PROD từ alias hoặc desktop bridge; ghi nhãn PROD trong plan. Chỉ write khi target evidence từ `ping` khớp server người dùng đã chọn.
+- Nếu phát hiện $\ge 2$ server TAP: dùng server đã lưu bằng `scripts/mcp_pref.py`; chưa có lựa chọn thì hỏi người dùng chọn một lần (xem MCP preflight ở `tap-orchestration`).
 
 ## 3. Phân Lớp Rủi Ro (R0 - R3)
 Tra cứu 59 tools trong [tool-index.md](file://skills/tap-core/references/tool-index.md):
