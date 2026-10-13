@@ -8,7 +8,7 @@ user-invocable: false
 
 **Delegated-by: tap-orchestration.** Không nhận request trực tiếp, không tạo/resume work item hoặc tự hỏi clarification/approval. Chỉ thực hiện subtask có `workItemId`, resolved scope/capability và phase từ gateway; thiếu context thì trả `BLOCKED`/route lại gateway trước mọi MCP write.
 
-Skill quản lý vòng đời biểu mẫu tương tác nhiều bước (Interaction Flow / Custom Forms) cho tenant. Gateway tạo HTML fixture-only mockup trước plan; MCP preview chỉ diễn ra sau approval. Plan approval theo `tap-core` thay thế gate lặp lại cho các publish reversible đã liệt kê.
+Skill quản lý vòng đời biểu mẫu tương tác nhiều bước (Interaction Flow / Custom Forms) cho tenant. Gateway tạo mockup fixture-only bằng Claude Design (fallback HTML artifact khi không có Claude Design) trước plan; MCP preview chỉ diễn ra sau approval. Plan approval theo `tap-core` thay thế gate lặp lại cho các publish reversible đã liệt kê.
 
 ## 1. Nguyên Tắc Cốt Lõi
 - Đọc `tap-core` trước khi gọi bất kỳ tool nào.

@@ -106,7 +106,8 @@ def main():
     phase.add_argument("phase", choices=PLANNING_PHASES)
     mockup = sub.add_parser("record-mockup")
     mockup.add_argument("work_id")
-    mockup.add_argument("--source", choices=("html-artifact", "claude-artifact"), required=True)
+    mockup.add_argument("--source", choices=("claude-design", "html-artifact"), required=True)
+    mockup.add_argument("--fallback-reason", default="", help="Bắt buộc khi source=html-artifact: vì sao không dùng được Claude Design")
     mockup.add_argument("--artifact-url", required=True)
     mockup.add_argument("--artifact-id", required=True)
     mockup.add_argument("--contract", required=True, help="Mockup contract JSON, không chứa secret")
@@ -187,7 +188,9 @@ def main():
             except ValueError as exc: raise SystemExit(str(exc))
             if "/preview/" in args.artifact_url or "localhost:8931" in args.artifact_url:
                 raise SystemExit("MCP renderer preview URL không phải journey mockup artifact")
-            data["mockup"] = {"source": args.source, "artifactUrl": args.artifact_url,
+            if args.source == "html-artifact" and not args.fallback_reason.strip():
+                raise SystemExit("html-artifact chỉ là fallback: cần --fallback-reason (môi trường không có Claude Design)")
+            data["mockup"] = {"source": args.source, "fallbackReason": args.fallback_reason or None, "artifactUrl": args.artifact_url,
                               "artifactId": args.artifact_id, "contract": contract,
                               "recordedAt": now(), **metadata}
             event(data, "mockup", args.source)

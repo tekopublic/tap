@@ -8,7 +8,7 @@ user-invocable: false
 
 **Delegated-by: tap-orchestration.** Không nhận request trực tiếp, không tạo/resume work item hoặc tự hỏi clarification/approval. Chỉ thực hiện subtask có `workItemId`, resolved scope/capability và phase từ gateway; thiếu context thì trả `BLOCKED`/route lại gateway trước mọi MCP write.
 
-Dùng skill này cho một journey đi qua **chat** và **display panel**. Không dùng nó cho một panel độc lập (dùng `tap-screen`) hoặc một form/chat flow độc lập (dùng `tap-flow`). Đọc `tap-core` trước mọi thao tác. Qua `tap-orchestration`, mockup trước plan phải là HTML/Claude Artifact có cả hai pane; `preview_screen` một mình không đủ.
+Dùng skill này cho một journey đi qua **chat** và **display panel**. Không dùng nó cho một panel độc lập (dùng `tap-screen`) hoặc một form/chat flow độc lập (dùng `tap-flow`). Đọc `tap-core` trước mọi thao tác. Qua `tap-orchestration`, mockup trước plan phải là artifact Claude Design có cả hai pane (fallback HTML artifact chỉ khi môi trường không có Claude Design); `preview_screen` một mình không đủ.
 
 ## 1. Ranh Giới Runtime
 

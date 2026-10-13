@@ -29,7 +29,8 @@ def test_state_and_clarification():
         run(store, "record-clarification", "write-1", "--assumptions", '[{"id":"A1","text":"fixture","userVisible":true}]')
         run(store, "record-clarification", "write-1", "--assumptions", "[]", ok=False)
         run(store, "set-phase", "write-1", "MOCKUP_REVIEW")
-        run(store, "record-mockup", "write-1", "--source", "html-artifact", "--artifact-url", "mockups/journey.html", "--artifact-id", "journey", "--contract", contract)
+        run(store, "record-mockup", "write-1", "--source", "html-artifact", "--artifact-url", "mockups/journey.html", "--artifact-id", "journey", "--contract", contract, ok=False)
+        run(store, "record-mockup", "write-1", "--source", "claude-design", "--artifact-url", "claude-design://journey", "--artifact-id", "journey", "--contract", contract)
         run(store, "set-phase", "write-1", "PLAN_FINALIZATION"); run(store, "transition", "write-1", "WAITING_FOR_PLAN_APPROVAL")
         run(store, "transition", "write-1", "IMPLEMENTING", ok=False); run(store, "approve-plan", "write-1", "--fingerprint", "v2-abc")
         run(store, "transition", "write-1", "IMPLEMENTING"); run(store, "transition", "write-1", "TESTING"); run(store, "record-parity", "write-1", "--status", "passed", "--evidence", "screen/lane/transition trace")
@@ -50,6 +51,7 @@ def test_builder_v1_v2():
 
 def test_gateway_assets():
     orchestrator = (ROOT / "skills/tap-orchestration/SKILL.md").read_text(encoding="utf-8")
+    assert "Bắt buộc Claude Design" in orchestrator and "--fallback-reason" in orchestrator
     assert "không còn hỗ trợ capability giỏ hàng" in orchestrator and "clarificationCount" in orchestrator
     assert not (ROOT / "skills" / ("tap-shopper" + "-cart")).exists()
     for command in (ROOT / "commands").glob("*.md"):

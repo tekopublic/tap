@@ -15,7 +15,7 @@ Mọi yêu cầu TAP phải đi qua `tap-orchestration`. Các slash command bên
 Capability giỏ hàng/checkout đã ngừng hỗ trợ. Gateway trả lời rõ rằng không gọi MCP cart capability; không tự thay thế bằng thao tác storefront khác.
 
 ## Tính năng chính
-- Agent orchestration gateway: Leader tạo/resume work item, phân loại intent, quản lý tối đa một lượt clarification UX, dựng mockup HTML đa màn hình trước plan; Implementer và Tester chỉ làm việc theo delegation context đã duyệt.
+- Agent orchestration gateway: Leader tạo/resume work item, phân loại intent, quản lý tối đa một lượt clarification UX, dựng mockup đa màn hình bằng Claude Design (fallback HTML artifact nếu môi trường không hỗ trợ) trước plan; Implementer và Tester chỉ làm việc theo delegation context đã duyệt.
 - Quản lý màn hình (Screen / Display): Tạo màn hình mới, sửa màn hình live an toàn không gây gián đoạn shopper, xóa màn hình có backup.
 - Interaction Flow: Quản lý biểu mẫu nhiều bước, preview với session values trước khi publish.
 - Cấu hình nâng cao: Tinh chỉnh persona (giọng nói, brand), parameter presets chip, runtime config và 5 tokens màu sắc của theme.

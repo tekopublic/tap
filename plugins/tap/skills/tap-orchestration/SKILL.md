@@ -22,7 +22,11 @@ Sau câu trả lời, không hỏi UX clarification lần hai: hợp nhất câu
 
 ## 3. Mockup, plan và delegation
 
-Với UI route, chuyển `PLANNING/MOCKUP_REVIEW`, tạo fixture-only scenario theo [schema](references/journey-mockup-schema.md), rồi chạy `scripts/build_journey_mockup.py`. V2 nhiều màn hình phải có flow map, numbered screens, lanes, labelled transitions, assumptions và fingerprint. Không gọi MCP preview/save/publish để tạo mockup. V1 single-screen vẫn hợp lệ.
+Với UI route, chuyển `PLANNING/MOCKUP_REVIEW`, tạo fixture-only scenario theo [schema](references/journey-mockup-schema.md) làm contract, rồi dựng mockup trực quan từ contract đó:
+
+- **Bắt buộc Claude Design** (source `claude-design`): tạo artifact Claude Design dạng canvas, mỗi screen là một artboard đánh số `01 · <tên>`; artboard đầu hoặc tiêu đề canvas thể hiện flow map, lanes, CTA/transition và assumptions. Giao diện bám layout storefront thật (header, chat sidebar, display panel) và token `get_theme` của tenant; dữ liệu là fixture/placeholder có nhãn.
+- **Fallback chỉ khi môi trường không có Claude Design** (Claude Code CLI/VS Code): publish HTML artifact bằng tool Artifact (source `html-artifact`), load skill `artifact-design` trước, cùng chuẩn thiết kế như trên (artboard theo screen, theme tenant). Phải ghi `--fallback-reason` khi record.
+- **Cấm** dùng `scripts/build_journey_mockup.py` (legacy, không dùng nữa) hoặc template HTML dựng sẵn để sinh mockup. Không gọi MCP preview/save/publish để tạo mockup. V1 single-screen vẫn hợp lệ.
 
 Sau review, record artifact path/URL, fingerprint, schema version, screen/lane/transition IDs trong work item. Với write, tạo plan gồm objective, operations, target, backup/rollback, tests và fingerprint; chuyển `WAITING_FOR_PLAN_APPROVAL`. Chỉ **Đồng ý triển khai** gắn approval fingerprint. Không approval lại write reversible đã liệt kê; R3/không đảo ngược/payment/external/missing identifier vẫn gate riêng.
 
