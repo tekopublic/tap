@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "tap-marketplace",
+  "description": "TAP Tenant Ops plugin marketplace.",
+  "owner": {
+    "name": "TAP"
+  },
+  "plugins": [
+    {
+      "name": "tap",
+      "description": "TAP tenant-operations workflows with safety gates for screens, flows, chat-display, and configuration.",
+      "source": "./plugins/tap",
+      "category": "productivity"
+    }
+  ]
+}
