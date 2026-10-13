@@ -1,6 +1,6 @@
 {
   "name": "tap",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "description": "TAP orchestration gateway an toàn: mọi yêu cầu và alias đi qua một cổng trước khi worker nội bộ xử lý màn hình, flow, chat-display hoặc cấu hình.",
   "author": {
     "name": "Nguyễn Văn Quyết",
