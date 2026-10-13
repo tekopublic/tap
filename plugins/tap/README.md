@@ -19,6 +19,7 @@ Capability giỏ hàng/checkout đã ngừng hỗ trợ. Gateway trả lời rõ
 - Quản lý màn hình (Screen / Display): Tạo màn hình mới, sửa màn hình live an toàn không gây gián đoạn shopper, xóa màn hình có backup.
 - Interaction Flow: Quản lý biểu mẫu nhiều bước, preview với session values trước khi publish.
 - Cấu hình nâng cao: Tinh chỉnh persona (giọng nói, brand), parameter presets chip, runtime config và 5 tokens màu sắc của theme.
+- Báo lỗi: khi gặp sự cố, plugin giải thích bằng tiếng Việt và đưa sẵn nội dung để copy gửi nhóm Google Chat TAP (không tự gửi, đã che dữ liệu nhạy cảm).
 - Cổng an toàn (Safety Gates): Kiểm tra kết nối MCP TAP khi bắt đầu, người dùng chọn MCP một lần (được lưu lại), ghi lên PROD/LOCAL đều cần plan approval và backup trước khi ghi live.
 
 ## Các lệnh hỗ trợ (alias vào gateway)

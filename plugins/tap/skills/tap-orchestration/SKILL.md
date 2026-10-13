@@ -20,6 +20,10 @@ user-invocable: true
 4. Người dùng nói "đổi MCP" / "dùng <tên server>" ở bất kỳ lúc nào: chạy lại `mcp_pref.py set`. `/tap:status` hiển thị server đang dùng và các server TAP khác khả dụng.
 5. Ghi `server` đã chọn vào work item và truyền cho mọi worker; worker không tự chọn server khác.
 
+## 0b. Báo lỗi cho team TAP
+
+Khi chuyển `BLOCKED`, hoặc gặp lỗi không tự xử lý được (thiếu kết nối/quyền/API/config, `ok:false` nội bộ, không tạo được Claude Design): dừng, rồi theo [error-report.md](../tap-core/references/error-report.md) chạy `scripts/build_error_report.py` và in nguyên văn kết quả: giải thích tiếng Việt dễ hiểu, khung báo cáo để copy, hướng dẫn dán vào nhóm Google Chat TAP. Không gửi mạng, không tự gửi thay người dùng, không đưa secret/PII/nội dung chat khách. Nếu đã có thao tác ghi dở dang, nêu rõ ở mục "Đã ghi gì lên hệ thống?" kèm đường dẫn backup.
+
 ## 1. Triage và retirement
 
 1. Create/resume work item trước mọi route; ghi alias, intent, scope, target/risk, `clarificationCount` (0 hoặc 1), assumptions và phase. Chỉ gateway được transition state/phase, parse approval hay kết thúc response.

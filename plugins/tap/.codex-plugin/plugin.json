@@ -1,6 +1,6 @@
 {
   "name": "tap",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "TAP local tenant-operations workflows with the TAP MCP connection bundled for ChatGPT and Codex.",
   "author": {
     "name": "Nguyễn Văn Quyết"

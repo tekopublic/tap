@@ -57,9 +57,16 @@ def test_mcp_pref():
         out("set", "phongvu-tap-mcp"); assert json.loads(out("get"))["server"] == "phongvu-tap-mcp"
         out("clear"); assert json.loads(out("get"))["server"] is None
 
+def test_error_report():
+    r = subprocess.run([sys.executable, str(ROOT / "scripts/build_error_report.py"), "--category", "server-error", "--server", "phongvu-tap-mcp", "--env", "PROD",
+                        "--message", "fail Bearer abc.def-123 token=xyz sk-VzqtolULllXGPDTTBtc9gg a@b.vn 0912345678"], text=True, capture_output=True, check=True).stdout
+    assert "[TAP - BÁO LỖI]" in r and "Google Chat TAP" in r and "Chuyện gì đã xảy ra" in r
+    for leak in ("abc.def-123", "xyz", "VzqtolULll", "a@b.vn", "0912345678"): assert leak not in r, leak
+
 def test_gateway_assets():
     orchestrator = (ROOT / "skills/tap-orchestration/SKILL.md").read_text(encoding="utf-8")
     assert "Claude Design (canvas)" in orchestrator and "Không có fallback HTML." in orchestrator
+    assert "build_error_report.py" in orchestrator
     assert "MCP preflight" in orchestrator and "mcp_pref.py" in orchestrator
     assert "không còn hỗ trợ capability giỏ hàng" in orchestrator and "clarificationCount" in orchestrator
     assert not (ROOT / "skills" / ("tap-shopper" + "-cart")).exists()
@@ -69,4 +76,4 @@ def test_gateway_assets():
         text = (ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8"); assert "Delegated-by: tap-orchestration" in text and "workItemId" in text
 
 if __name__ == "__main__":
-    test_state_and_clarification(); test_builder_v1_v2(); test_mcp_pref(); test_gateway_assets(); print("✔ TAP orchestration tests passed")
+    test_state_and_clarification(); test_builder_v1_v2(); test_mcp_pref(); test_error_report(); test_gateway_assets(); print("✔ TAP orchestration tests passed")

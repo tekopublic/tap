@@ -38,5 +38,7 @@ Tra cứu 59 tools trong [tool-index.md](file://skills/tap-core/references/tool-
 - **Lỗi JSON-RPC `-32003 Permission denied`**: Dừng ngay lập tức, báo rõ quyền bị thiếu từ [permissions.md](file://skills/tap-core/references/permissions.md).
 - **Tool bị ẩn khỏi danh sách**: Server tự động ẩn tool khi user thiếu quyền IAM. Dừng lại, in tên quyền cần thiết và mẫu tin nhắn gửi IAM Admin. Tuyệt đối KHÔNG tìm đường vòng.
 
+- **Mọi lỗi dừng được** (BLOCKED, thiếu quyền/API/config, lỗi server): hiển thị báo cáo theo [error-report.md](file://skills/tap-core/references/error-report.md) để người dùng gửi team TAP.
+
 ## 6. Phạm Vi Loại Trừ
 - Các công cụ Datamart (`query_data`, `describe_table`...) thuộc phạm vi phân tích dữ liệu DWH riêng, không dùng trong tùy biến giao diện storefront.
