@@ -1,0 +1,33 @@
+{
+  "name": "tap",
+  "version": "1.1.11",
+  "description": "TAP local tenant-operations workflows with the TAP MCP connection bundled for ChatGPT and Codex.",
+  "author": {
+    "name": "Nguyễn Văn Quyết"
+  },
+  "keywords": [
+    "tap",
+    "mcp",
+    "tenant",
+    "storefront"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "TAP Tenant Ops",
+    "shortDescription": "Điều phối an toàn thao tác tenant TAP qua MCP local.",
+    "longDescription": "Workflow TAP cho cấu hình tenant, preview và safety gate. Package tự khởi tạo TAP MCP local khi được dùng trong Work chat.",
+    "developerName": "Nguyễn Văn Quyết",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write with confirmation",
+      "MCP workflows"
+    ],
+    "defaultPrompt": [
+      "Dùng TAP để kiểm tra trạng thái tenant bằng MCP đã chọn.",
+      "Dùng TAP để lập kế hoạch sửa một màn hình tenant, chưa ghi dữ liệu.",
+      "Dùng TAP để kiểm tra theme và các màn hình hiện có."
+    ],
+    "brandColor": "#0F766E"
+  }
+}

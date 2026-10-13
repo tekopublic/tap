@@ -1,0 +1,15 @@
+{
+  "name": "tap",
+  "version": "1.1.7",
+  "description": "TAP orchestration gateway an toàn: mọi yêu cầu và alias đi qua một cổng trước khi worker nội bộ xử lý màn hình, flow, chat-display hoặc cấu hình.",
+  "author": {
+    "name": "Nguyễn Văn Quyết",
+    "email": "quyet.nv@teko.vn"
+  },
+  "keywords": [
+    "tap",
+    "mcp",
+    "tenant",
+    "storefront"
+  ]
+}

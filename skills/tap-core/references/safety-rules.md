@@ -1,0 +1,15 @@
+# 13 Quy Tắc Bắt Buộc Khi Thao Tác Ghi MCP TAP
+
+1. **Mặc định là chế độ chỉ đọc**: Mọi thao tác thuộc lớp R1-R3 đều phải qua cổng xác nhận riêng biệt cho từng hành động. Không chấp nhận "xác nhận gộp cho cả phiên".
+2. **Thẻ xác nhận minh bạch**: Thẻ xác nhận phải nêu rõ: Môi trường (PROD hay LOCAL), Tool dự định gọi, Đối tượng (`code`/`flowId`), Hiệu ứng trực tiếp, Nơi đã backup, Cách hoàn tác, và các cảnh báo từ `preview_screen` hay `warnings[]`. R2 cần gõ "yes", R3 phải gõ lại đúng từ khóa chỉ định.
+3. **Tuân thủ luồng chuẩn**: Luồng màn hình mới: Soạn $\rightarrow$ `preview_screen` $\rightarrow$ Hỏi xác nhận $\rightarrow$ `publish_screen`. Với màn hình ĐANG LIVE: Tuyệt đối KHÔNG gọi `save_screen` với cùng `code` (sẽ gỡ màn hình live thành nháp), mà phải: `get_screen` (backup) $\rightarrow$ `preview_screen(blobContent)` $\rightarrow$ Hỏi xác nhận $\rightarrow$ `publish_screen` đầy đủ. Promote draft chỉ thực hiện khi `preview_screen(screenCode)` đã đạt `shapeCheck.ok = true`.
+4. **Bắt buộc Backup (`BK`) trước R2/R3**: Xuất JSON bản hiện tại vào file `./.tap-backups/<UTC>-<tool>-<id>.json` (hoặc dán nguyên văn vào chat nếu không có quyền ghi disk) trước khi thực hiện ghi đè.
+5. **Giới hạn tự sửa lỗi (Max 1 retry)**: Nếu tool báo lỗi `{"ok": false, "error": {...}}`, chỉ tự điều chỉnh payload tối đa 1 lần nếu nguyên nhân rõ ràng từ mã lỗi; tuyệt đối không retry ghi mù hoặc đổi sang tool khác để lách quyền.
+6. **Không suy diễn định danh**: Tất cả các giá trị `operationId`, `code`, `flowId`, tên trường dữ liệu phải được lấy từ các tool khám phá (`list_*`, `describe_*`) trong chính phiên làm việc.
+7. **Không truyền tham số `tenantId` thủ công**: `tenantId` luôn được server phân giải từ Bearer Token. Nếu truyền lệch sẽ bị lỗi `tenant_scope`. Muốn đổi tenant, yêu cầu người dùng chuyển đổi connector.
+8. **Luôn kiểm chứng sau khi ghi (`Verify - V`)**: Sau khi gọi tool ghi thành công, luôn gọi ngay tool đọc tương ứng (`get_screen`, `get_interaction_flow`...) để xác nhận trạng thái thực tế trên server trước khi báo hoàn tất.
+9. **Cảnh báo tính chất Report (khi dùng)**: Báo cáo publish có URL công khai, mật khẩu một chiều không đọc lại được, dữ liệu snapshot cố định tại thời điểm chạy SQL.
+10. **Không ủy quyền ghi cho Sub-agent**: Các tác vụ có side-effect ghi live không giao cho sub-agent vì sub-agent không thể tương tác trực tiếp xin phép người dùng.
+11. **Cảnh báo khi dùng `previewUrl`**: Khi người dùng mở link `previewUrl` trên trình duyệt và bấm các nút tương tác, các API backend THẬT sẽ được kích hoạt (đặc biệt là các method POST/PUT/DELETE có mutation dữ liệu).
+12. **Bảo mật thông tin đăng nhập**: Tuyệt đối không ghi token, Bearer header, client secrets hay password vào file backup hoặc log.
+13. **Xử lý sự cố đã biết (Known Bug P13)**: Nếu gặp lỗi `'str' object has no attribute 'get'` do schema conditions, thử đúng 1 lần với format mảng JSON hoặc bỏ tham số `conditions`. Nếu tiếp tục lỗi thì dừng lại báo lỗi server đã biết. Nếu gặp `RateLimitExceeded`, dừng lại và thông báo `retry_after`.
