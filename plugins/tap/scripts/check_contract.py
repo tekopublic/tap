@@ -128,7 +128,7 @@ def main():
         content = open(cf, encoding="utf-8").read()
         if "tap-orchestration" not in content or "Không gọi worker hoặc MCP tool trực tiếp" not in content:
             errors.append(f"[G1] {os.path.relpath(cf, plugin_dir)} không phải thin alias vào gateway")
-    for worker in ("tap-status", "tap-screen", "tap-flow", "tap-config", "tap-chat-display", "tap-shopper-cart"):
+    for worker in ("tap-status", "tap-screen", "tap-flow", "tap-config", "tap-chat-display"):
         path = os.path.join(plugin_dir, "skills", worker, "SKILL.md")
         content = open(path, encoding="utf-8").read() if os.path.exists(path) else ""
         if "Delegated-by: tap-orchestration" not in content or "workItemId" not in content:

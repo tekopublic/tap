@@ -69,11 +69,11 @@ def test_gateway_assets():
     assert "Sơ đồ nối màn hình bắt buộc" in orchestrator and "T<số bước>" in orchestrator
     assert "build_error_report.py" in orchestrator
     assert "MCP preflight" in orchestrator and "mcp_pref.py" in orchestrator
-    assert "tap-shopper-cart" in orchestrator and "không từ chối" in orchestrator and "clarificationCount" in orchestrator
-    assert "không còn hỗ trợ capability giỏ hàng" not in orchestrator
+    assert "không từ chối" in orchestrator and "Không có skill riêng cho giỏ hàng" in orchestrator and "clarificationCount" in orchestrator
+    assert "không còn hỗ trợ capability giỏ hàng" not in orchestrator and not (ROOT / "skills" / ("tap-shopper" + "-cart")).exists()
     for command in (ROOT / "commands").glob("*.md"):
         text = command.read_text(encoding="utf-8"); assert "tap-orchestration" in text and "Không gọi worker hoặc MCP tool trực tiếp" in text
-    for name in ("tap-status","tap-screen","tap-flow","tap-config","tap-chat-display","tap-shopper-cart"):
+    for name in ("tap-status","tap-screen","tap-flow","tap-config","tap-chat-display"):
         text = (ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8"); assert "Delegated-by: tap-orchestration" in text and "workItemId" in text
 
 if __name__ == "__main__":
