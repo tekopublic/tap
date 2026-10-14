@@ -128,28 +128,11 @@ def main():
         content = open(cf, encoding="utf-8").read()
         if "tap-orchestration" not in content or "Không gọi worker hoặc MCP tool trực tiếp" not in content:
             errors.append(f"[G1] {os.path.relpath(cf, plugin_dir)} không phải thin alias vào gateway")
-    for worker in ("tap-status", "tap-screen", "tap-flow", "tap-config", "tap-chat-display"):
+    for worker in ("tap-status", "tap-screen", "tap-flow", "tap-config", "tap-chat-display", "tap-shopper-cart"):
         path = os.path.join(plugin_dir, "skills", worker, "SKILL.md")
         content = open(path, encoding="utf-8").read() if os.path.exists(path) else ""
         if "Delegated-by: tap-orchestration" not in content or "workItemId" not in content:
             errors.append(f"[G2] worker {worker} thiếu delegation guard")
-
-    # Retired cart must not be active source. Historical docs are deliberately not scanned.
-    retired = ("tap-shopper-cart", "VIEW_CART", "ADD_TO_CART", "UPDATE_CART_ITEM", "REMOVE_CART_ITEM", "APPLY_PROMOTION", "CHECKOUT")
-    for rel in ("skills", "commands", "scripts", "README.md", ".claude-plugin/plugin.json", "plugin.json", ".codex-plugin/plugin.json"):
-        target = os.path.join(plugin_dir, rel)
-        files = [target] if os.path.isfile(target) else glob.glob(os.path.join(target, "**", "*"), recursive=True)
-        for file in files:
-            if not os.path.isfile(file):
-                continue
-            if "__pycache__" in file.split(os.sep):
-                continue
-            if os.path.abspath(file) == os.path.abspath(__file__):
-                continue
-            content = open(file, encoding="utf-8", errors="ignore").read()
-            for token in retired:
-                if token in content:
-                    errors.append(f"[G3] active retired-cart reference {token}: {os.path.relpath(file, plugin_dir)}")
 
     if errors:
         print("X Kiểm tra hợp đồng thất bại:")

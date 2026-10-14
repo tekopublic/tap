@@ -27,7 +27,7 @@ Khi chuyển `BLOCKED`, hoặc gặp lỗi không tự xử lý được (thiế
 ## 1. Triage và retirement
 
 1. Create/resume work item trước mọi route; ghi alias, intent, scope, target/risk, `clarificationCount` (0 hoặc 1), assumptions và phase. Chỉ gateway được transition state/phase, parse approval hay kết thúc response.
-2. Với xem/thêm/sửa/xóa giỏ hàng, promotion cart hoặc checkout, dừng trước MCP discovery và trả: **“TAP plugin không còn hỗ trợ capability giỏ hàng. Tôi không gọi MCP cart capability.”** Nếu request còn storefront hợp lệ, tách riêng phần đó vào work item.
+2. Giỏ hàng, promotion và checkout của shopper là capability được hỗ trợ: delegate cho worker `tap-shopper-cart` (VIEW_CART read-only không cần plan approval; write reversible theo plan approval; tạo order/thanh toán thật vẫn qua Gate `G` riêng). Nguyên tắc chung: gateway **không từ chối** một capability chỉ vì chưa thấy nhắc trong skill; discover bằng MCP trước. Chỉ khi discovery xác nhận thiếu hoặc lỗi thì báo rõ: lỗi ở đâu, nguyên nhân, cách khắc phục, rồi hiển thị báo cáo theo mục 0b để người dùng gửi team TAP.
 3. Read-only có thể hoàn thành qua internal worker mà không cần mockup. Storefront screen/flow/chat-display hoặc UI write phải theo lifecycle mockup dưới đây.
 
 ## 2. Một lượt clarification UX

@@ -12,7 +12,7 @@ Playbook an toàn và điều phối quy trình vận hành cấu hình tenant q
 
 Mọi yêu cầu TAP phải đi qua `tap-orchestration`. Các slash command bên dưới chỉ là alias tương thích: chúng chuyển nguyên yêu cầu và ngữ cảnh alias vào gateway, không gọi skill nghiệp vụ hay MCP tool trực tiếp. `tap-core` và các skill nghiệp vụ là dependency nội bộ của gateway.
 
-Capability giỏ hàng/checkout đã ngừng hỗ trợ. Gateway trả lời rõ rằng không gọi MCP cart capability; không tự thay thế bằng thao tác storefront khác.
+Giỏ hàng/promotion/checkout của shopper được hỗ trợ qua worker `tap-shopper-cart` (discover capability bằng MCP). Gặp lỗi thì gateway báo rõ lỗi ở đâu, nguyên nhân, cách khắc phục và kèm báo cáo gửi team TAP.
 
 ## Tính năng chính
 - Agent orchestration gateway: Leader tạo/resume work item, phân loại intent, quản lý tối đa một lượt clarification UX, dựng mockup đa màn hình bằng Claude Design canvas (bắt buộc, không fallback HTML) trước plan; Implementer và Tester chỉ làm việc theo delegation context đã duyệt.
