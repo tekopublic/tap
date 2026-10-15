@@ -15,7 +15,7 @@ Mọi yêu cầu TAP phải đi qua `tap-orchestration`. Các slash command bên
 Giỏ hàng/promotion/checkout được hỗ trợ bằng các skill sẵn có (`tap-screen`, `tap-flow`, `tap-chat-display`, `tap-core`) sau khi discover capability qua MCP, không có skill riêng. Gặp lỗi thì gateway báo rõ lỗi ở đâu, nguyên nhân, cách khắc phục và kèm báo cáo gửi team TAP.
 
 ## Tính năng chính
-- Agent orchestration gateway: Leader tạo/resume work item, phân loại intent, quản lý tối đa một lượt clarification UX, dựng mockup đa màn hình bằng Claude Design canvas (bắt buộc, không fallback HTML) trước plan; Implementer và Tester chỉ làm việc theo delegation context đã duyệt.
+- Agent orchestration gateway: Leader tạo/resume work item, phân loại intent, quy trình cứng B1 (kiểm tra thực tế + hỏi 1-3 câu, một lượt) → B2 (Journey map + mockup đa màn hình bằng Claude Design canvas, bắt buộc, không fallback HTML; người dùng đồng ý Mockup) → B3 (bảng Requirement 6 cột in ra chat, người dùng xác nhận) trước plan/ghi, được ép bằng state machine `work_item_state.py`; Implementer và Tester chỉ làm việc theo delegation context đã duyệt.
 - Quản lý màn hình (Screen / Display): Tạo màn hình mới, sửa màn hình live an toàn không gây gián đoạn shopper, xóa màn hình có backup.
 - Interaction Flow: Quản lý biểu mẫu nhiều bước, preview với session values trước khi publish.
 - Cấu hình nâng cao: Tinh chỉnh persona (giọng nói, brand), parameter presets chip, runtime config và 5 tokens màu sắc của theme.
@@ -28,6 +28,7 @@ Giỏ hàng/promotion/checkout được hỗ trợ bằng các skill sẵn có (
 Trên ChatGPT, slash aliases không phải contract portable. Hãy chọn plugin TAP trong Work chat rồi dùng prompt tự nhiên, ví dụ: “Dùng TAP để kiểm tra theme tenant”. Skill `tap-orchestration` là entrypoint chung.
 
 ## Quy tắc orchestration
+- Yêu cầu storefront screen/flow/chat-display có ghi phải qua B1 → B2 → B3. Chưa có xác nhận Requirement + Mockup của người dùng thì không sửa code, không save/publish, không ghi gì lên hệ thống; script `work_item_state.py` từ chối chuyển trạng thái sai thứ tự (lệnh `record-clarification`, `approve-mockup`, `record-requirement`, `confirm-requirement`).
 - Yêu cầu ghi dữ liệu chỉ có một lần duyệt plan. Các ghi reversible đã liệt kê trong plan được tự thực hiện sau khi duyệt.
 - Xóa/không thể đảo ngược, thanh toán thật, gửi dữ liệu ra ngoài hoặc thiếu dữ liệu bắt buộc vẫn cần hỏi lại đúng tại điểm phát sinh.
 - Plugin chỉ dùng MCP tools được kết nối trong phiên. Không phụ thuộc hoặc truy cập source directory bên ngoài plugin.

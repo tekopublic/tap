@@ -3,6 +3,7 @@
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import tempfile
@@ -10,7 +11,11 @@ import re
 from pathlib import Path
 
 STATES = ("PLANNING", "WAITING_FOR_PLAN_APPROVAL", "IMPLEMENTING", "TESTING", "COMPLETED", "BLOCKED")
-PLANNING_PHASES = ("INTENT_ANALYSIS", "MOCKUP_REVIEW", "PLAN_FINALIZATION")
+# B1 INTENT_ANALYSIS (hỏi 1-3 câu) → B2 MOCKUP_REVIEW (Claude Design) → B3 REQUIREMENT_CONFIRMATION (bảng requirement) → PLAN_FINALIZATION
+PLANNING_PHASES = ("INTENT_ANALYSIS", "MOCKUP_REVIEW", "REQUIREMENT_CONFIRMATION", "PLAN_FINALIZATION")
+GATED_FLOWS = ("screen", "chat-display", "flow")
+SCREEN_STATUS = ("existing", "modify", "new")
+REQ_COLUMNS = ["trigger", "precondition", "chat panel", "display panel", "system", "must not"]
 TRANSITIONS = {
     "PLANNING": {"WAITING_FOR_PLAN_APPROVAL", "IMPLEMENTING", "BLOCKED"},
     "WAITING_FOR_PLAN_APPROVAL": {"IMPLEMENTING", "BLOCKED"},
@@ -32,6 +37,14 @@ def validate_mockup(contract):
     flow = contract.get("flowMap", {})
     if not flow.get("startScreenId") or not flow.get("lanes") or "transitions" not in flow:
         raise ValueError("multi-screen contract thiếu flowMap")
+    for x in screens:
+        if x.get("status") not in SCREEN_STATUS:
+            raise ValueError(f"{x.get('id')}: status phải là existing/modify/new")
+        if x["status"] != "new" and not x.get("mcpRef"):
+            raise ValueError(f"{x.get('id')}: màn existing/modify phải có mcpRef (mã screen lấy từ MCP get_screen)")
+        for panel in ("chat", "display"):
+            if not isinstance(x.get(panel), dict) or not x[panel]:
+                raise ValueError(f"{x.get('id')}: thiếu hoặc rỗng {panel} panel (mỗi màn phải đủ chat + display)")
     ids = [x.get("id") for x in screens]
     if len(ids) != len(set(ids)) or not all(isinstance(x, str) and SCREEN_ID.fullmatch(x) for x in ids):
         raise ValueError("screen ID không hợp lệ")
@@ -47,7 +60,58 @@ def validate_mockup(contract):
         if t["fromScreenId"] not in ids or t["toScreenId"] not in ids or t["laneId"] not in lanes:
             raise ValueError("transition tham chiếu không hợp lệ")
     return {"schemaVersion": contract.get("schemaVersion", 2), "screenIds": ids, "laneIds": lanes,
-            "transitionIds": [x["id"] for x in transitions]}
+            "transitionIds": [x["id"] for x in transitions],
+            "transitionLabels": {x["id"]: f"T{i}" for i, x in enumerate(transitions, 1)}}
+
+
+def sha(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def mockup_hash(mockup):
+    return sha(json.dumps({"contract": mockup["contract"], "artifactId": mockup["artifactId"]}, sort_keys=True, ensure_ascii=False))
+
+
+def gated(data):
+    return data.get("flowKind") in GATED_FLOWS and not data.get("readOnly")
+
+
+def mockup_approved_valid(data):
+    a, m = data.get("mockupApproved"), data.get("mockup")
+    return bool(a and m and a.get("mockupHash") == mockup_hash(m))
+
+
+def requirement_confirmed_valid(data):
+    c, r = data.get("requirementConfirmed"), data.get("requirement")
+    return bool(mockup_approved_valid(data) and c and r and c.get("fingerprint") == r.get("fingerprint"))
+
+
+def invalidate(data, *fields):
+    for f in fields:
+        data[f] = None
+
+
+def parse_requirement_table(text):
+    rows = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if all(set(c) <= set("-: ") for c in cells):
+            continue
+        rows.append(cells)
+    if not rows:
+        raise ValueError("không tìm thấy bảng markdown")
+    if [c.lower() for c in rows[0]] != REQ_COLUMNS:
+        raise ValueError("header bảng phải đúng 6 cột: Trigger | Precondition | Chat panel | Display panel | System | Must not")
+    body = rows[1:]
+    if not body:
+        raise ValueError("bảng không có dòng dữ liệu")
+    for i, r in enumerate(body, 1):
+        if len(r) != 6 or not all(r):
+            raise ValueError(f"dòng {i} phải đủ 6 ô, không để trống")
+    return body
 
 
 def now():
@@ -113,6 +177,17 @@ def main():
     clarify = sub.add_parser("record-clarification")
     clarify.add_argument("work_id")
     clarify.add_argument("--assumptions", required=True)
+    clarify.add_argument("--questions", required=True, help='JSON list 1-3 câu: [{"q":"...","default":"..."}]')
+    am = sub.add_parser("approve-mockup")
+    am.add_argument("work_id")
+    am.add_argument("--quote", required=True, help="Nguyên văn người dùng đồng ý với Mockup")
+    rr = sub.add_parser("record-requirement")
+    rr.add_argument("work_id")
+    rr.add_argument("--table-file", required=True, help="File markdown bảng requirement 6 cột đã in ra chat")
+    cr = sub.add_parser("confirm-requirement")
+    cr.add_argument("work_id")
+    cr.add_argument("--fingerprint", required=True)
+    cr.add_argument("--quote", required=True, help="Nguyên văn người dùng xác nhận requirement + mockup")
     approve = sub.add_parser("approve-plan")
     approve.add_argument("work_id")
     approve.add_argument("--fingerprint", required=True)
@@ -143,7 +218,8 @@ def main():
                 "summary": args.summary, "state": "PLANNING", "createdAt": now(),
                 "updatedAt": now(), "phase": "INTENT_ANALYSIS", "flowKind": args.flow_kind,
                 "clarificationCount": args.clarification_count, "assumptions": assumptions,
-                "steps": {}, "tests": [], "mockup": None, "planApproval": None, "parity": [], "events": []}
+                "steps": {}, "tests": [], "mockup": None, "clarification": None, "mockupApproved": None,
+                "requirement": None, "requirementConfirmed": None, "planApproval": None, "parity": [], "events": []}
         event(data, "created", "")
         write(path, data)
     else:
@@ -156,7 +232,18 @@ def main():
             elif args.state not in TRANSITIONS[data["state"]]:
                 raise SystemExit(f"transition không hợp lệ: {data['state']} → {args.state}")
             else:
-                needs_mockup = data.get("flowKind") in ("screen", "chat-display", "flow")
+                needs_mockup = data.get("flowKind") in GATED_FLOWS
+                if gated(data) and data["state"] == "PLANNING" and args.state in ("WAITING_FOR_PLAN_APPROVAL", "IMPLEMENTING"):
+                    if args.state == "IMPLEMENTING":
+                        raise SystemExit("flow ghi phải qua WAITING_FOR_PLAN_APPROVAL, không nhảy thẳng PLANNING → IMPLEMENTING")
+                    if not data.get("clarification"):
+                        raise SystemExit("B1 chưa xong: cần record-clarification (1-3 câu hỏi)")
+                    if not mockup_approved_valid(data):
+                        raise SystemExit("B2 chưa xong: cần record-mockup rồi approve-mockup (người dùng đồng ý Mockup)")
+                    if not requirement_confirmed_valid(data):
+                        raise SystemExit("B3 chưa xong: cần record-requirement rồi confirm-requirement (người dùng xác nhận bảng requirement)")
+                    if data["phase"] != "PLAN_FINALIZATION":
+                        raise SystemExit("cần phase PLAN_FINALIZATION trước plan approval")
                 if data["state"] == "PLANNING" and args.state == "WAITING_FOR_PLAN_APPROVAL" and needs_mockup and not data.get("mockup"):
                     raise SystemExit("flow này cần mockup contract trước plan approval")
                 if data["state"] == "WAITING_FOR_PLAN_APPROVAL" and args.state == "IMPLEMENTING" and needs_mockup and not data.get("planApproval"):
@@ -167,15 +254,43 @@ def main():
         elif args.command == "set-phase":
             if data["state"] != "PLANNING":
                 raise SystemExit("chỉ đổi phase khi work item đang PLANNING")
+            cur, new = PLANNING_PHASES.index(data["phase"]), PLANNING_PHASES.index(args.phase)
+            if gated(data):
+                if new > cur + 1:
+                    raise SystemExit(f"không được bỏ qua bước: {data['phase']} → {args.phase}")
+                if new == 0 and cur > 0:
+                    raise SystemExit("không quay lại INTENT_ANALYSIS (B1 chỉ có một lượt)")
+                if args.phase == "MOCKUP_REVIEW" and not data.get("clarification"):
+                    raise SystemExit("B1 chưa xong: cần record-clarification (tối thiểu 1 câu hỏi) trước khi vào B2")
+                if args.phase == "REQUIREMENT_CONFIRMATION" and not mockup_approved_valid(data):
+                    raise SystemExit("B2 chưa xong: cần approve-mockup trước khi vào B3")
+                if args.phase == "PLAN_FINALIZATION" and not requirement_confirmed_valid(data):
+                    raise SystemExit("B3 chưa xong: cần confirm-requirement trước PLAN_FINALIZATION")
+                if new < cur:
+                    invalidate(data, "requirementConfirmed", "planApproval")
+                    if args.phase == "MOCKUP_REVIEW":
+                        invalidate(data, "mockupApproved", "requirement")
+                    else:
+                        invalidate(data, "requirement")
+                    event(data, "invalidate", f"quay lại {args.phase}")
             data["phase"] = args.phase
             event(data, "phase", args.phase)
         elif args.command == "record-clarification":
-            if data.get("clarificationCount", 0) >= 1:
+            if data.get("clarification") or data.get("clarificationCount", 0) >= 1:
                 raise SystemExit("clarification UX đã dùng hết budget")
+            if data["phase"] != "INTENT_ANALYSIS":
+                raise SystemExit("record-clarification chỉ trong INTENT_ANALYSIS (B1)")
+            try: questions = json.loads(args.questions)
+            except json.JSONDecodeError as exc: raise SystemExit(f"questions JSON không hợp lệ: {exc}")
+            if not isinstance(questions, list) or not 1 <= len(questions) <= 3:
+                raise SystemExit("phải hỏi tối thiểu 1 và tối đa 3 câu")
+            if not all(isinstance(q, dict) and str(q.get("q", "")).strip() and str(q.get("default", "")).strip() for q in questions):
+                raise SystemExit("mỗi câu hỏi phải có q và default (đáp án mặc định đề xuất)")
+            data["clarification"] = {"questions": questions, "at": now()}
             try: data["assumptions"] = json.loads(args.assumptions)
             except json.JSONDecodeError as exc: raise SystemExit(f"assumptions JSON không hợp lệ: {exc}")
             data["clarificationCount"] = 1
-            event(data, "clarification", "1/1")
+            event(data, "clarification", f"1 lượt, {len(questions)} câu")
         elif args.command == "record-mockup":
             if data["state"] != "PLANNING" or data["phase"] != "MOCKUP_REVIEW":
                 raise SystemExit("mockup chỉ được ghi trong PLANNING/MOCKUP_REVIEW")
@@ -190,12 +305,50 @@ def main():
             data["mockup"] = {"source": args.source,  "artifactUrl": args.artifact_url,
                               "artifactId": args.artifact_id, "contract": contract,
                               "recordedAt": now(), **metadata}
+            invalidate(data, "mockupApproved", "requirement", "requirementConfirmed", "planApproval")
             event(data, "mockup", args.source)
+        elif args.command == "approve-mockup":
+            if data["state"] != "PLANNING" or data["phase"] != "MOCKUP_REVIEW":
+                raise SystemExit("approve-mockup chỉ trong PLANNING/MOCKUP_REVIEW")
+            if not data.get("mockup"):
+                raise SystemExit("chưa có mockup để duyệt")
+            if not args.quote.strip():
+                raise SystemExit("cần nguyên văn người dùng đồng ý Mockup")
+            data["mockupApproved"] = {"quote": args.quote, "mockupHash": mockup_hash(data["mockup"]), "at": now()}
+            invalidate(data, "requirement", "requirementConfirmed", "planApproval")
+            event(data, "mockup-approved", data["mockupApproved"]["mockupHash"])
+        elif args.command == "record-requirement":
+            if data["phase"] != "REQUIREMENT_CONFIRMATION" or data["state"] != "PLANNING":
+                raise SystemExit("record-requirement chỉ trong PLANNING/REQUIREMENT_CONFIRMATION (B3)")
+            if not mockup_approved_valid(data):
+                raise SystemExit("mockup chưa được người dùng đồng ý (hoặc đã đổi sau khi duyệt)")
+            try: text = Path(args.table_file).read_text(encoding="utf-8"); body = parse_requirement_table(text)
+            except (OSError, ValueError) as exc: raise SystemExit(f"bảng requirement không hợp lệ: {exc}")
+            triggers = [r[0] for r in body]
+            missing = [label for tid, label in data["mockup"].get("transitionLabels", {}).items()
+                       if not any(re.search(rf"\b{label}\b", t) for t in triggers)]
+            if missing:
+                raise SystemExit(f"bảng thiếu transition (cột Trigger phải ghi kèm (T<n>)): {', '.join(missing)}")
+            fp = sha(text.strip() + data["mockupApproved"]["mockupHash"])
+            data["requirement"] = {"table": text, "rows": len(body), "fingerprint": fp, "recordedAt": now()}
+            invalidate(data, "requirementConfirmed", "planApproval")
+            event(data, "requirement", fp)
+        elif args.command == "confirm-requirement":
+            if data["phase"] != "REQUIREMENT_CONFIRMATION" or data["state"] != "PLANNING":
+                raise SystemExit("confirm-requirement chỉ trong PLANNING/REQUIREMENT_CONFIRMATION (B3)")
+            if not data.get("requirement") or args.fingerprint != data["requirement"]["fingerprint"]:
+                raise SystemExit("fingerprint không khớp bảng requirement hiện tại")
+            if not args.quote.strip():
+                raise SystemExit("cần nguyên văn người dùng xác nhận")
+            data["requirementConfirmed"] = {"fingerprint": args.fingerprint, "quote": args.quote, "at": now()}
+            event(data, "requirement-confirmed", args.fingerprint)
         elif args.command == "approve-plan":
             if data["state"] != "WAITING_FOR_PLAN_APPROVAL":
                 raise SystemExit("chỉ approve plan khi đang WAITING_FOR_PLAN_APPROVAL")
             if not data.get("readOnly") and not data.get("mockup"):
                 raise SystemExit("plan write cần mockup contract trước approval")
+            if gated(data) and not requirement_confirmed_valid(data):
+                raise SystemExit("plan write cần requirement đã được người dùng xác nhận (B3)")
             data["planApproval"] = {"fingerprint": args.fingerprint, "approvedAt": now()}
             event(data, "plan-approved", args.fingerprint)
         elif args.command == "record-parity":

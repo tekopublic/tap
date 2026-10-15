@@ -21,7 +21,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Check contract parity")
     parser.add_argument(
         "--plugin-dir",
-        default="/Users/quyet/Desktop/code/teko/1temp/plugin/tap",
+        default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         help="Path to plugin directory",
     )
     return parser.parse_args()
@@ -133,6 +133,18 @@ def main():
         content = open(path, encoding="utf-8").read() if os.path.exists(path) else ""
         if "Delegated-by: tap-orchestration" not in content or "workItemId" not in content:
             errors.append(f"[G2] worker {worker} thiếu delegation guard")
+
+    # Q1: quy trình cứng B1 -> B2 -> B3 phải có trong gateway và state machine
+    orch = os.path.join(plugin_dir, "skills", "tap-orchestration", "SKILL.md")
+    orch_text = open(orch, encoding="utf-8").read() if os.path.exists(orch) else ""
+    for marker in ("B1 —", "B2 —", "B3 —", "Cổng cứng", "record-clarification", "approve-mockup", "record-requirement", "confirm-requirement"):
+        if marker not in orch_text:
+            errors.append(f"[Q1] tap-orchestration/SKILL.md thiếu mục quy trình cứng: {marker}")
+    state_py = os.path.join(scripts_dir, "work_item_state.py")
+    state_text = open(state_py, encoding="utf-8").read() if os.path.exists(state_py) else ""
+    for marker in ("REQUIREMENT_CONFIRMATION", "approve-mockup", "record-requirement", "confirm-requirement", "requirementConfirmed"):
+        if marker not in state_text:
+            errors.append(f"[Q1] work_item_state.py thiếu cổng: {marker}")
 
     if errors:
         print("X Kiểm tra hợp đồng thất bại:")

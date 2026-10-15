@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # pack_zip.sh — Đóng gói plugin tap thành file zip chuẩn để upload lên Cowork
 # Sử dụng: bash scripts/pack_zip.sh [version] [release-dir]
-# Ví dụ:   bash scripts/pack_zip.sh 3.0.0 ../release
+# Ví dụ:   bash scripts/pack_zip.sh 3.1.0 ../release
 
 set -euo pipefail
 
 PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="${1:-3.0.0}"
+VERSION="${1:-3.1.0}"
 OUTPUT_NAME="tap-${VERSION}.zip"
 RELEASE_DIR="${2:-$(dirname "${PLUGIN_DIR}")/release}"
 OUTPUT_PATH="${RELEASE_DIR}/${OUTPUT_NAME}"

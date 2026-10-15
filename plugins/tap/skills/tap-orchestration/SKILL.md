@@ -28,50 +28,54 @@ Khi chuyển `BLOCKED`, hoặc gặp lỗi không tự xử lý được (thiế
 
 1. Create/resume work item trước mọi route; ghi alias, intent, scope, target/risk, `clarificationCount` (0 hoặc 1), assumptions và phase. Chỉ gateway được transition state/phase, parse approval hay kết thúc response.
 2. Không có skill riêng cho giỏ hàng: xem/thêm/sửa/xóa giỏ, promotion và checkout là yêu cầu storefront bình thường, được xử lý bằng các skill sẵn có. Discover bằng MCP trước (`list_services`/`list_endpoints`/`describe_endpoint`, `list_state_transitions`/`describe_state`, `list_session_values`, `get_screen`) rồi route: panel/màn hình giỏ hàng → `tap-screen`; luồng nhiều bước (form, checkout, chat flow) → `tap-flow`; journey chat + display → `tap-chat-display`; persona/runtime config liên quan → `tap-config`; an toàn, risk R0-R3, backup, gate → `tap-core`. Xem giỏ (đọc) là R0, không cần plan approval; write reversible theo plan approval; tạo order/thanh toán thật vẫn qua Gate `G` riêng. Nguyên tắc chung: **không từ chối** một khả năng chỉ vì skill chưa nhắc tới; chỉ khi discovery xác nhận thiếu hoặc lỗi thì báo rõ lỗi ở đâu, nguyên nhân, cách khắc phục và hiển thị báo cáo theo mục 0b. Không bịa dữ liệu giỏ hàng.
-3. Read-only có thể hoàn thành qua internal worker mà không cần mockup. Storefront screen/flow/chat-display hoặc UI write phải theo lifecycle mockup dưới đây.
+3. Read-only có thể hoàn thành qua internal worker mà không cần mockup. Storefront screen/flow/chat-display hoặc UI write phải theo quy trình cứng B1 → B2 → B3 ở mục 2.
 
-## 2. Một lượt clarification UX
+## 2. Quy trình cứng B1 → B2 → B3 (mọi yêu cầu storefront screen/flow/chat-display có ghi)
 
-Triage dùng context và R0 discovery trước. Nếu đủ dữ liệu, ghi assumptions có nhãn rồi dựng mockup ngay. Nếu lần đầu thiếu dữ liệu material, gửi đúng một message, tối đa ba nhóm: (1) mục tiêu/người dùng, (2) screen/flow và điểm bắt đầu, (3) nội dung/brand/fixture; nêu default cho từng nhóm và tăng `clarificationCount` lên 1.
+Thứ tự bắt buộc, không đảo, không bỏ bước. Chỉ khi xong B3 mới được sửa code, `save_screen`/`publish_screen`, lưu trữ hay bất kỳ thao tác ghi nào. Trong B1-B3 chỉ MCP read-only; cấm code chi tiết và thay đổi hiện trạng thật.
 
-Sau câu trả lời, không hỏi UX clarification lần hai: hợp nhất câu trả lời/default, công bố assumptions và tạo mockup. Feedback như “sửa Screen 02/lane Empty state/CTA” là iteration mockup, không tăng count. Thiếu target, delete mơ hồ, payment/order thật, external disclosure hoặc permission failure vẫn BLOCKED theo `tap-core`; không được suy đoán.
+### Cổng cứng (`scripts/work_item_state.py`, gọi đúng thời điểm, script từ chối nếu sai thứ tự)
 
-## 3. Mockup, plan và delegation
+| Bước | Phase | Lệnh bắt buộc | Điều kiện qua cổng |
+|---|---|---|---|
+| B1 | `INTENT_ANALYSIS` | `record-clarification --questions` | 1-3 câu, mỗi câu kèm `default` |
+| B2 | `MOCKUP_REVIEW` | `record-mockup` → `approve-mockup --quote` | người dùng nhắn đồng ý Mockup |
+| B3 | `REQUIREMENT_CONFIRMATION` | `record-requirement --table-file` → `confirm-requirement --fingerprint --quote` | người dùng xác nhận bảng |
+| Sau | `PLAN_FINALIZATION` | `transition WAITING_FOR_PLAN_APPROVAL` → `approve-plan` | requirement đã xác nhận khớp fingerprint |
 
-Với UI route, chuyển `PLANNING/MOCKUP_REVIEW`, tạo fixture-only scenario theo [schema](references/journey-mockup-schema.md) làm contract, rồi dựng mockup trực quan từ contract đó:
+Đổi mockup hoặc bảng sau khi đã duyệt làm mất hiệu lực mọi xác nhận phía sau (quay lại bước đó). Không nhảy thẳng `PLANNING → IMPLEMENTING`.
 
-- **Đầu ra DUY NHẤT hợp lệ: Claude Design (canvas)** (source `claude-design`). Đây là loại artifact "Claude Design" hiển thị trong chat (thẻ ghi "Claude Design"), KHÔNG phải file `.html`/"Code · HTML". Mỗi screen là một artboard đánh số `01 · <tên>` trên canvas; có flow map, lanes, CTA/transition, assumptions; bám layout storefront thật (header, chat sidebar, display panel) và token `get_theme` của tenant; dữ liệu fixture có nhãn.
-- **Sơ đồ nối màn hình bắt buộc (mockup nhiều màn hình):**
-  - Artboard `01 · tên`, `02 · tên`… xếp trái → phải theo luồng chính; mỗi `transition` trong contract là **một mũi tên có hướng** nối artboard nguồn tới artboard đích, kèm nhãn `T<số bước> · "<ctaLabel>"` (T1, T2… theo thứ tự trong `flowMap.transitions`).
-  - Màu/kiểu nét theo lane: happy-path = nét liền xanh lá; empty-state = nét đứt vàng; error-fallback = nét đứt đỏ, nối về screen fallback; alternate = nét liền xám/tím. Có chú giải (legend) ở góc canvas.
-  - Đầu canvas có khung **Flow map** thu nhỏ: các ô số màn hình nối bằng cùng mũi tên/màu/nhãn `T<n>`, để xem tổng thể trước khi xem từng artboard.
-  - Màn hình đã có và không sửa vẽ dạng khung mờ ghi "giữ nguyên", vẫn nối mũi tên vào.
-  - Số mũi tên = số `transitions`; mỗi `screenId`/`transitionId` có đúng một artboard/mũi tên. Nếu công cụ không có đối tượng nối chuẩn thì dùng đường kẻ + đầu mũi tên thường, vẫn phải đủ màu, nhãn và số bước.
-- **Không chờ người dùng yêu cầu.** Không được tạo file HTML, HTML artifact (tool Artifact), Markdown hay ảnh làm mockup rồi hỏi "bạn có muốn Claude Design không". Tạo thẳng Claude Design ngay lượt đầu của `MOCKUP_REVIEW`.
-- **Không có fallback HTML.** Nếu môi trường không có khả năng tạo Claude Design (ví dụ Claude Code CLI/VS Code, không thấy tool/skill Claude Design), dừng ở `BLOCKED`: báo rõ "cần chạy trong Claude Desktop/claude.ai để tạo Claude Design canvas", không tự thay bằng HTML.
-- **Cấm** dùng `scripts/build_journey_mockup.py` (legacy) hoặc template HTML dựng sẵn. Không gọi MCP preview/save/publish để tạo mockup. V1 single-screen vẫn hợp lệ.
+### B1 — Tiếp nhận, kiểm tra thực tế, hỏi lại
 
-### 3b. Xác nhận Requirement + Mockup (bắt buộc trước SAVE/PUBLISH)
+- Tạo work item, rồi kiểm tra hiện trạng thật bằng MCP read-only (`list_screens`, `get_screen`, `list_services`/`list_endpoints`, `list_state_transitions`, `get_theme`...), kèm R0 discovery.
+- Hỏi người dùng tối thiểu 1 và tối đa 3 câu, gộp trong đúng một message, mỗi câu nêu đáp án mặc định đề xuất. Chỉ một lượt: sau câu trả lời không hỏi UX lần hai, hợp nhất câu trả lời/default và công bố assumptions.
+- Ghi bằng `record-clarification` (`clarificationCount` = 1). Thiếu target, delete mơ hồ, payment/order thật, external disclosure hoặc permission failure vẫn BLOCKED theo `tap-core`, không suy đoán.
 
-Khi người dùng đồng ý mockup, **không** chuyển thẳng sang plan/save/publish. Chuyển phase `PLAN_FINALIZATION` (sub-bước xác nhận requirement, chưa phải plan approval), tổng hợp toàn bộ quá trình chat + mockup đã được đồng ý thành bảng requirement và **in trực tiếp ra ô chat** (không chỉ ghi file, không chỉ dẫn link):
+### B2 — Claude Design (sau khi có trả lời B1)
 
-- **Nguồn tổng hợp:** các yêu cầu/feedback người dùng đã nói trong chat, assumptions đã công bố, và contract mockup đã duyệt (`screens`, `flowMap.lanes`, `flowMap.transitions`). Chỉ ghi điều đã có trong chat hoặc mockup; mục model tự suy luận phải gắn nhãn `(assumption Ax)`. Không thêm hành vi mới chưa ai duyệt.
-- **Cột bảng (markdown, đúng thứ tự):** `Trigger | Precondition | Chat panel | Display panel | System | Must not`.
-  - Trigger: hành động kích hoạt, ghi rõ nguồn `[Chat] "câu mẫu"` hoặc `[Bấm · Display] <CTA/ngữ cảnh>`; có thể kèm mã `T<n>` của transition.
-  - Precondition: trạng thái/dữ liệu cần có để nhánh này xảy ra.
-  - Chat panel / Display panel: hiển thị đúng như mockup (nội dung, CTA, state).
-  - System: dữ liệu lưu/đọc, state chuyển, thứ được mang sang bước sau.
-  - Must not: các điều cấm (gắn nhầm, báo sai, ghi khi không được phép, mất dữ liệu...).
-- **Một dòng = một cặp (trigger, precondition).** Cùng trigger nhưng khác precondition (có/không cho phép, thiếu thông tin, rỗng, lỗi) tách thành các dòng riêng. Bắt buộc phủ đủ: happy path, mọi lane `empty-state`/`error-fallback`/`alternate` và mọi transition trong mockup; số dòng phải truy được về `screenId`/`transitionId`, không bỏ sót lane nào.
-- **Dưới bảng** liệt kê: assumptions còn hiệu lực, phần "giữ nguyên" không sửa, và các điểm mockup chưa nói rõ (nếu có) để người dùng chốt.
-- **Câu hỏi xác nhận:** kết thúc bằng đúng một câu hỏi: "Bảng trên đã đúng là Yêu cầu (requirement) và Mockup bạn muốn chưa? Trả lời **Xác nhận** để tiếp tục SAVE và PUBLISH, hoặc nêu dòng cần sửa."
-- **Cổng chặn:** chưa có phản hồi xác nhận rõ ràng sau khi bảng được hiển thị thì **cấm** `save_screen`/`publish_screen`/mọi write khác và cấm tạo plan chờ approval. Im lặng, "ok mockup đẹp" ở bước trước, hay approval cũ không thay thế bước này.
-- **Người dùng sửa bảng:** cập nhật bảng (và mockup nếu thay đổi UI/flow, không tăng `clarificationCount`), in lại bảng đã sửa, hỏi xác nhận lại. Lặp tới khi được xác nhận.
-- **Khi xác nhận:** lưu bảng đã chốt cùng fingerprint vào work item (`requirementFingerprint`), ghi nó là nguồn chuẩn cho plan và cho parity ở mục 4, rồi mới chuyển `WAITING_FOR_PLAN_APPROVAL` và tiếp tục SAVE → PUBLISH theo quy tắc approval/gate bên dưới. Mockup hoặc bảng đổi sau khi xác nhận làm mất hiệu lực xác nhận: quay lại bước này.
+Chuyển `MOCKUP_REVIEW`, tạo fixture-only scenario theo [schema](references/journey-mockup-schema.md) làm contract, rồi dựng mockup từ contract đó:
 
-Sau review, record artifact path/URL, fingerprint, schema version, screen/lane/transition IDs trong work item. Với write, tạo plan gồm objective, operations, target, backup/rollback, tests và fingerprint; chuyển `WAITING_FOR_PLAN_APPROVAL`. Chỉ **Đồng ý triển khai** gắn approval fingerprint. Không approval lại write reversible đã liệt kê; R3/không đảo ngược/payment/external/missing identifier vẫn gate riêng.
+- **Đầu ra DUY NHẤT hợp lệ: Claude Design (canvas)** (source `claude-design`), loại artifact "Claude Design" trong chat, KHÔNG phải file `.html`/"Code · HTML". Bám layout storefront thật (header, chat sidebar, display panel) và token `get_theme`; dữ liệu fixture có nhãn.
+- **Journey map đầy đủ** (khung Flow map đầu canvas): mọi bước, đường đi, tình huống (happy / empty / error-fallback / alternate); mỗi màn đánh dấu CÓ SẴN (giữ nguyên) / SỬA / LÀM MỚI.
+- **Mockup chi tiết từng màn:** mỗi artboard `01 · tên`, `02 · tên`… có đủ **chat panel + display panel**, thể hiện tương tác qua lại giữa hai bên; số thứ tự khớp Journey map. Màn có sẵn phải đối chiếu dữ liệu thật qua MCP (`list_screens`/`get_screen`), ghi `mcpRef` vào contract; màn mới ghi chú rõ "MỚI".
+- **Sơ đồ nối màn hình:** mỗi `transition` là một mũi tên có hướng, nhãn `T<số bước> · "<ctaLabel>"` (T1, T2… theo thứ tự `flowMap.transitions`); happy-path nét liền xanh lá, empty-state nét đứt vàng, error-fallback nét đứt đỏ nối về screen fallback, alternate nét liền xám/tím; có legend. Màn đã có và không sửa vẽ khung mờ "giữ nguyên", vẫn nối mũi tên. Số mũi tên = số `transitions`; nếu thiếu đối tượng nối chuẩn thì dùng đường kẻ + đầu mũi tên, vẫn đủ màu, nhãn, số bước.
+- **Không chờ người dùng yêu cầu:** tạo thẳng Claude Design ngay lượt đầu của B2, không tạo HTML/Markdown/ảnh rồi hỏi lại. Không có fallback HTML. Nếu môi trường không tạo được Claude Design (Claude Code CLI/VS Code), dừng `BLOCKED` và báo "cần chạy trong Claude Desktop/claude.ai để tạo Claude Design canvas". Cấm `scripts/build_journey_mockup.py` (legacy), cấm MCP preview/save/publish để làm mockup.
+- Mọi yêu cầu sửa của người dùng ("sửa Screen 02/lane Empty state/CTA") là iteration: cập nhật mockup, `record-mockup` lại, không tăng clarificationCount, lặp đến khi người dùng nhắn đồng ý Mockup, rồi `approve-mockup --quote "<nguyên văn>"`.
 
-Gateway delegate worker với `workItemId`, resolved scope/capability và phase. Worker thiếu cả ba phải trả `BLOCKED`/route lại gateway, không gọi MCP write. Worker chỉ làm subtask; gateway giữ tool discovery intent, work-state, clarification, approval, parity và final response.
+### B3 — Bảng Requirement (sau khi người dùng đồng ý Mockup)
+
+Chuyển `REQUIREMENT_CONFIRMATION`, tổng hợp toàn bộ chat + mockup đã chốt thành bảng markdown, **in thẳng ra ô chat** (không chỉ ghi file/dẫn link), rồi lưu cùng nội dung bằng `record-requirement`:
+
+- **6 cột đúng thứ tự:** `Trigger | Precondition | Chat panel | Display panel | System | Must not`. Trigger ghi `[Chat] "câu mẫu"` hoặc `[Bấm · Display] <CTA>` kèm `(T<n>)` của transition. Precondition = trạng thái/dữ liệu cần có. Chat/Display = đúng như mockup. System = lưu/đọc, đổi state, thứ mang sang bước sau. Must not = các điều cấm.
+- Một dòng = một cặp (trigger, precondition); cùng trigger khác precondition tách dòng riêng. Phủ happy path, mọi lane empty/error/alternate và **mọi transition** (script từ chối nếu thiếu `T<n>`). Chỉ ghi điều có trong chat/mockup; điều model suy luận gắn `(assumption Ax)`; không thêm hành vi chưa ai duyệt.
+- Dưới bảng: assumptions còn hiệu lực, phần "giữ nguyên", điểm mockup chưa rõ; kết thúc bằng đúng một câu: "Bảng trên đã đúng là Yêu cầu (requirement) và Mockup bạn muốn chưa? Trả lời **Xác nhận** để tiếp tục, hoặc nêu dòng cần sửa."
+- Người dùng sửa bảng: sửa, in lại, `record-requirement` lại, hỏi xác nhận lại (đổi UI/flow thì quay B2). Chỉ khi có xác nhận rõ ràng mới `confirm-requirement --fingerprint --quote`. Im lặng, "mockup đẹp" ở B2 hay approval cũ không thay thế bước này.
+
+Sau B3: record artifact path/URL, fingerprint, schema version, screen/lane/transition IDs trong work item. Với write, tạo plan gồm objective, operations, target, backup/rollback, tests và fingerprint; chuyển `WAITING_FOR_PLAN_APPROVAL`. Chỉ **Đồng ý triển khai** gắn approval fingerprint. Không approval lại write reversible đã liệt kê; R3/không đảo ngược/payment/external/missing identifier vẫn gate riêng.
+
+## 3. Delegation
+
+Gateway delegate worker với `workItemId`, resolved scope/capability và phase; với write thì gateway chỉ delegate sau B3 và truyền kèm `requirementFingerprint` đã xác nhận. Worker thiếu `workItemId`/scope/phase phải trả `BLOCKED`/route lại gateway, không gọi MCP write. Worker chỉ làm subtask; gateway giữ tool discovery intent, work-state, clarification, approval, parity và final response.
 
 ## 4. Handoff
 
