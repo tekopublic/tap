@@ -51,10 +51,28 @@ Với UI route, chuyển `PLANNING/MOCKUP_REVIEW`, tạo fixture-only scenario t
 - **Không có fallback HTML.** Nếu môi trường không có khả năng tạo Claude Design (ví dụ Claude Code CLI/VS Code, không thấy tool/skill Claude Design), dừng ở `BLOCKED`: báo rõ "cần chạy trong Claude Desktop/claude.ai để tạo Claude Design canvas", không tự thay bằng HTML.
 - **Cấm** dùng `scripts/build_journey_mockup.py` (legacy) hoặc template HTML dựng sẵn. Không gọi MCP preview/save/publish để tạo mockup. V1 single-screen vẫn hợp lệ.
 
+### 3b. Xác nhận Requirement + Mockup (bắt buộc trước SAVE/PUBLISH)
+
+Khi người dùng đồng ý mockup, **không** chuyển thẳng sang plan/save/publish. Chuyển phase `PLAN_FINALIZATION` (sub-bước xác nhận requirement, chưa phải plan approval), tổng hợp toàn bộ quá trình chat + mockup đã được đồng ý thành bảng requirement và **in trực tiếp ra ô chat** (không chỉ ghi file, không chỉ dẫn link):
+
+- **Nguồn tổng hợp:** các yêu cầu/feedback người dùng đã nói trong chat, assumptions đã công bố, và contract mockup đã duyệt (`screens`, `flowMap.lanes`, `flowMap.transitions`). Chỉ ghi điều đã có trong chat hoặc mockup; mục model tự suy luận phải gắn nhãn `(assumption Ax)`. Không thêm hành vi mới chưa ai duyệt.
+- **Cột bảng (markdown, đúng thứ tự):** `Trigger | Precondition | Chat panel | Display panel | System | Must not`.
+  - Trigger: hành động kích hoạt, ghi rõ nguồn `[Chat] "câu mẫu"` hoặc `[Bấm · Display] <CTA/ngữ cảnh>`; có thể kèm mã `T<n>` của transition.
+  - Precondition: trạng thái/dữ liệu cần có để nhánh này xảy ra.
+  - Chat panel / Display panel: hiển thị đúng như mockup (nội dung, CTA, state).
+  - System: dữ liệu lưu/đọc, state chuyển, thứ được mang sang bước sau.
+  - Must not: các điều cấm (gắn nhầm, báo sai, ghi khi không được phép, mất dữ liệu...).
+- **Một dòng = một cặp (trigger, precondition).** Cùng trigger nhưng khác precondition (có/không cho phép, thiếu thông tin, rỗng, lỗi) tách thành các dòng riêng. Bắt buộc phủ đủ: happy path, mọi lane `empty-state`/`error-fallback`/`alternate` và mọi transition trong mockup; số dòng phải truy được về `screenId`/`transitionId`, không bỏ sót lane nào.
+- **Dưới bảng** liệt kê: assumptions còn hiệu lực, phần "giữ nguyên" không sửa, và các điểm mockup chưa nói rõ (nếu có) để người dùng chốt.
+- **Câu hỏi xác nhận:** kết thúc bằng đúng một câu hỏi: "Bảng trên đã đúng là Yêu cầu (requirement) và Mockup bạn muốn chưa? Trả lời **Xác nhận** để tiếp tục SAVE và PUBLISH, hoặc nêu dòng cần sửa."
+- **Cổng chặn:** chưa có phản hồi xác nhận rõ ràng sau khi bảng được hiển thị thì **cấm** `save_screen`/`publish_screen`/mọi write khác và cấm tạo plan chờ approval. Im lặng, "ok mockup đẹp" ở bước trước, hay approval cũ không thay thế bước này.
+- **Người dùng sửa bảng:** cập nhật bảng (và mockup nếu thay đổi UI/flow, không tăng `clarificationCount`), in lại bảng đã sửa, hỏi xác nhận lại. Lặp tới khi được xác nhận.
+- **Khi xác nhận:** lưu bảng đã chốt cùng fingerprint vào work item (`requirementFingerprint`), ghi nó là nguồn chuẩn cho plan và cho parity ở mục 4, rồi mới chuyển `WAITING_FOR_PLAN_APPROVAL` và tiếp tục SAVE → PUBLISH theo quy tắc approval/gate bên dưới. Mockup hoặc bảng đổi sau khi xác nhận làm mất hiệu lực xác nhận: quay lại bước này.
+
 Sau review, record artifact path/URL, fingerprint, schema version, screen/lane/transition IDs trong work item. Với write, tạo plan gồm objective, operations, target, backup/rollback, tests và fingerprint; chuyển `WAITING_FOR_PLAN_APPROVAL`. Chỉ **Đồng ý triển khai** gắn approval fingerprint. Không approval lại write reversible đã liệt kê; R3/không đảo ngược/payment/external/missing identifier vẫn gate riêng.
 
 Gateway delegate worker với `workItemId`, resolved scope/capability và phase. Worker thiếu cả ba phải trả `BLOCKED`/route lại gateway, không gọi MCP write. Worker chỉ làm subtask; gateway giữ tool discovery intent, work-state, clarification, approval, parity và final response.
 
 ## 4. Handoff
 
-Tester replay fixture trace; parity chỉ passed khi chat, display, screen/lane/transition trace khớp mockup. Gateway báo delivered behavior, data writes, evidence, state và blocker. Guard này là policy plugin có thể kiểm chứng, không phải hard authorization boundary; MCP permission và `tap-core` vẫn là enforcement cuối.
+Tester replay fixture trace; parity chỉ passed khi chat, display, screen/lane/transition trace khớp mockup và từng dòng bảng requirement đã xác nhận (kể cả cột Must not). Gateway báo delivered behavior, data writes, evidence, state và blocker. Guard này là policy plugin có thể kiểm chứng, không phải hard authorization boundary; MCP permission và `tap-core` vẫn là enforcement cuối.
