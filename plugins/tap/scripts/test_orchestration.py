@@ -33,6 +33,11 @@ PROBE = json.dumps({"status": "done", "tool": "claude-in-chrome", "useCases": [
     {"id": "UC1", "input": "tìm laptop", "expected": "có kết quả", "actual": "có 12 kết quả", "result": "pass"}]}, ensure_ascii=False)
 CONTRACT = json.dumps(multi_contract(), ensure_ascii=False)
 
+COV = json.dumps({"items": [{"id": "R1", "text": "tìm sản phẩm", "source": "issue"}, {"id": "R2", "text": "xem chi tiết", "source": "chat"}],
+                  "questions": [{"q": "Hết hàng?", "options": ["A. ẩn", "B. hiện nhãn"], "recommended": "B", "reason": "tồn kho thật"}]}, ensure_ascii=False)
+CMAP = '{"map":{"R1":["SHOP-SRC-001"]},"uncovered":{"R2":"chờ issue khác"}}'
+REVIEW = json.dumps({"reviewer": "subagent", "inputs": ["issue", "R-list", "usecase-rules", "table"], "findings": []})
+
 def table_file(tmp, text=TABLE, name="req.md"):
     f = Path(tmp) / name; f.write_text(text, encoding="utf-8"); return str(f)
 
@@ -57,10 +62,17 @@ def to_b2(store, tmp, w, kind="screen"):
     run(store, "record-mockup", w, "--source", "claude-design", "--artifact-url", "claude-design://j", "--artifact-id", "j", "--contract", CONTRACT)
     run(store, "approve-mockup", w, "--quote", "đồng ý Mockup")
 
+def cov(store, tmp, w):
+    run(store, "record-coverage", w, "--file", table_file(tmp, COV, f"{w}-cov.json"))
+
+def review(store, tmp, w, text=REVIEW, ok=True):
+    return run(store, "record-independent-review", w, "--file", table_file(tmp, text, f"{w}-rv.json"), ok=ok)
+
 def to_b3(store, tmp, w, kind="screen", table=TABLE, rid="req-1"):
     to_b2(store, tmp, w, kind)
-    run(store, "set-phase", w, "REQUIREMENT_CONFIRMATION")
-    run(store, "record-requirement", w, "--table-file", table_file(tmp, table, f"{w}-t.md"))
+    run(store, "set-phase", w, "REQUIREMENT_CONFIRMATION"); cov(store, tmp, w)
+    run(store, "record-requirement", w, "--coverage-map", CMAP, "--table-file", table_file(tmp, table, f"{w}-t.md"))
+    review(store, tmp, w)
     run(store, "confirm-requirement", w, "--fingerprint", fp(store, w), "--quote", "Xác nhận")
     run(store, "record-saved-requirement", w, "--requirement-id", rid, "--fingerprint", fp(store, w))
 
@@ -84,8 +96,21 @@ def test_full_flow():
         run(store, "approve-mockup", w, "--quote", "đồng ý Mockup")
         run(store, "set-phase", w, "PLAN_FINALIZATION", ok=False)
         run(store, "set-phase", w, "REQUIREMENT_CONFIRMATION")
-        run(store, "record-requirement", w, "--table-file", table_file(tmp, TABLE.replace("(T4)", "")), ok=False)
-        run(store, "record-requirement", w, "--table-file", table_file(tmp))
+        e = gate_err(run(store, "record-requirement", w, "--coverage-map", CMAP, "--table-file", table_file(tmp), ok=False))  # chưa B2.5
+        assert e["currentStep"] == "B2.5" and "| B2.5 |" in e["progress"], e
+        cov(store, tmp, w)
+        run(store, "record-requirement", w, "--coverage-map", CMAP, "--table-file", table_file(tmp, TABLE.replace("(T4)", "")), ok=False)
+        run(store, "record-requirement", w, "--coverage-map", '{"map":{"R1":["SHOP-SRC-001"]}}', "--table-file", table_file(tmp), ok=False)  # R2 không phủ, không lý do
+        run(store, "record-requirement", w, "--coverage-map", '{"map":{"R1":["SHOP-SRC-999"],"R2":["SHOP-SRC-002"]}}', "--table-file", table_file(tmp), ok=False)  # ID lạ
+        run(store, "record-requirement", w, "--coverage-map", '{"map":{"R1":["SHOP-SRC-001"],"R9":["SHOP-SRC-002"]},"uncovered":{"R2":"x"}}', "--table-file", table_file(tmp), ok=False)  # R lạ
+        run(store, "record-requirement", w, "--coverage-map", CMAP, "--table-file", table_file(tmp))
+        assert show(store, w)["requirement"]["uncovered"] == {"R2": "chờ issue khác"}
+        run(store, "confirm-requirement", w, "--fingerprint", fp(store, w), "--quote", "Xác nhận", ok=False)  # chưa rà độc lập
+        review(store, tmp, w, json.dumps({"reviewer": "self", "inputs": ["x"], "findings": []}), ok=False)
+        review(store, tmp, w, json.dumps({"reviewer": "subagent", "inputs": ["x"], "findings": [{"ref": "R1", "severity": "block", "issue": "thiếu case rỗng"}]}))
+        run(store, "confirm-requirement", w, "--fingerprint", fp(store, w), "--quote", "Xác nhận", ok=False)  # còn lỗi chặn, vòng 1
+        run(store, "record-requirement", w, "--coverage-map", CMAP, "--table-file", table_file(tmp))
+        review(store, tmp, w)
         run(store, "record-saved-requirement", w, "--requirement-id", "req-1", "--fingerprint", fp(store, w), ok=False)  # chưa Xác nhận
         run(store, "confirm-requirement", w, "--fingerprint", "sai", "--quote", "ok", ok=False)
         run(store, "confirm-requirement", w, "--fingerprint", fp(store, w), "--quote", "Xác nhận")
@@ -135,7 +160,7 @@ def test_clarification_rules():
 
 def test_table_rules():
     with tempfile.TemporaryDirectory() as tmp:
-        store = Path(tmp); to_b2(store, tmp, "t-1"); run(store, "set-phase", "t-1", "REQUIREMENT_CONFIRMATION")
+        store = Path(tmp); to_b2(store, tmp, "t-1"); run(store, "set-phase", "t-1", "REQUIREMENT_CONFIRMATION"); cov(store, tmp, "t-1")
         old6 = "| Trigger | Precondition | Chat panel | Display panel | System | Must not |\n|---|---|---|---|---|---|\n| [Chat] a (T1) | b | c | d | e | f |\n"
         rows = lambda *r: HEAD + "".join(r) + "".join(row(f"SHOP-SRC-00{i}", f"[Chat] bước (T{i})") for i in range(2, 5))
         bad = [old6,
@@ -146,10 +171,11 @@ def test_table_rules():
                rows(row("SHOP-SRC-001", "[Display click] (T1)", rate="80%")),
                rows(row("SHOP-SRC-001", "[Chat] a [Chat chip] b (T1)", rate="80%")),
                rows(row("SHOP-SRC-002", "[Chat] (T1)")),  # trùng ID
-               rows(row("abc", "[Chat] (T1)"))]
+               rows(row("abc", "[Chat] (T1)")),
+               rows(row("SHOP-SRC-001", "[Chat] (T1)").replace("| có dữ liệu |", "| Sau IMP-005B |"))]  # điều kiện trước không nói trạng thái
         for i, t in enumerate(bad):
-            run(store, "record-requirement", "t-1", "--table-file", table_file(tmp, t, f"b{i}.md"), ok=False)
-        run(store, "record-requirement", "t-1", "--table-file", table_file(tmp, rows(row("SHOP-SRC-001", "[Chat] hỏi (T1) 🔒", rate="80%", scope="issue 319 🔒"))))
+            run(store, "record-requirement", "t-1", "--coverage-map", CMAP, "--table-file", table_file(tmp, t, f"b{i}.md"), ok=False)
+        run(store, "record-requirement", "t-1", "--coverage-map", CMAP, "--table-file", table_file(tmp, rows(row("SHOP-SRC-001", "[Chat] hỏi (T1) 🔒", rate="80%", scope="issue 319 🔒"))))
 
 def test_id_stability():
     with tempfile.TemporaryDirectory() as tmp:
@@ -161,16 +187,17 @@ def test_id_stability():
         run(store, "record-live-probe", "id-1", "--file", table_file(tmp, PROBE, "probe.json")); run(store, "set-phase", "id-1", "MOCKUP_REVIEW")
         run(store, "record-proposal", "id-1", "--file", table_file(tmp, "Đề xuất", "p.md"))
         run(store, "record-mockup", "id-1", "--source", "claude-design", "--artifact-url", "claude-design://j", "--artifact-id", "j", "--contract", CONTRACT)
-        run(store, "approve-mockup", "id-1", "--quote", "ok"); run(store, "set-phase", "id-1", "REQUIREMENT_CONFIRMATION")
+        run(store, "approve-mockup", "id-1", "--quote", "ok"); run(store, "set-phase", "id-1", "REQUIREMENT_CONFIRMATION"); cov(store, tmp, "id-1")
         keep = row("SHOP-SRC-001", "[Chat] (T1)") + row("SHOP-SRC-002", "[Chat] (T2)") + row("SHOP-SRC-003A", "[Chat] (T3)")
         for i, extra in enumerate((row("SHOP-SRC-004", "[Chat] (T4)"),   # ID đã xoá, dùng lại
                                    row("SHOP-SRC-002B", "[Chat] (T4)"),  # case mới của usecase chỉ có một case: ok là B — kiểm ở dưới
                                    row("SHOP-SRC-003A", "[Chat] x (T4)"),  # trùng
                                    row("SHOP-SRC-001", "[Chat] (T4)") if False else row("SHOP-SRC-007", "[Chat] (T4)"))):  # nhảy số
             ok = i == 1
-            run(store, "record-requirement", "id-1", "--table-file", table_file(tmp, HEAD + keep + extra, f"i{i}.md"), ok=ok)
-        run(store, "record-requirement", "id-1", "--table-file", table_file(tmp, HEAD + keep + row("SHOP-SRC-003A", "[Chat]").replace("SHOP-SRC-003A", "SHOP-SRC-003B").replace("[Chat] |", "[Chat] (T4) |"), "i5.md"))
-        run(store, "record-requirement", "id-1", "--table-file", table_file(tmp, HEAD + keep + row("SHOP-SRC-005", "[Chat] (T4)"), "i6.md"))
+            run(store, "record-requirement", "id-1", "--coverage-map", CMAP, "--table-file", table_file(tmp, HEAD + keep + extra, f"i{i}.md"), ok=ok)
+        run(store, "record-requirement", "id-1", "--coverage-map", CMAP, "--table-file", table_file(tmp, HEAD + keep + row("SHOP-SRC-003A", "[Chat]").replace("SHOP-SRC-003A", "SHOP-SRC-003B").replace("[Chat] |", "[Chat] (T4) |"), "i5.md"))
+        run(store, "record-requirement", "id-1", "--coverage-map", CMAP, "--table-file", table_file(tmp, HEAD + keep + row("SHOP-SRC-005", "[Chat] (T4)"), "i6.md"))
+        review(store, tmp, "id-1")
         run(store, "confirm-requirement", "id-1", "--fingerprint", fp(store, "id-1"), "--quote", "Xác nhận")
         assert show(store, "id-1")["saveRequirementPayload"]["requirementId"] == "req-9"
         # bản đã Public → supersedesId
@@ -204,6 +231,30 @@ def test_confirmations_invalidate():
         run(store, "create", "ro-1", "--intent", "STATUS", "--summary", "x", "--read-only")
         assert "chỉ đọc" in run(store, "progress", "ro-1").stdout
 
+def test_coverage_rules():
+    with tempfile.TemporaryDirectory() as tmp:
+        store = Path(tmp); to_b2(store, tmp, "c-1")
+        run(store, "record-coverage", "c-1", "--file", table_file(tmp, COV, "c0.json"), ok=False)  # chưa set-phase
+        run(store, "set-phase", "c-1", "REQUIREMENT_CONFIRMATION")
+        q = {"q": "x", "options": ["A", "B"], "recommended": "A", "reason": "r"}
+        it = [{"id": "R1", "text": "a", "source": "issue"}]
+        bad = [{"items": []}, {"items": [{"id": "X1", "text": "a", "source": "issue"}], "questions": [q]},
+               {"items": it + it, "questions": [q]}, {"items": [{"id": "R1", "text": "a"}], "questions": [q]},
+               {"items": it, "questions": [q] * 6}, {"items": it}, {"items": it, "questions": [{"q": "x"}]}]
+        for i, c in enumerate(bad):
+            run(store, "record-coverage", "c-1", "--file", table_file(tmp, json.dumps(c), f"cb{i}.json"), ok=False)
+        run(store, "record-coverage", "c-1", "--file", table_file(tmp, json.dumps({"items": it, "questions": [q] * 5}), "c5.json"))
+        run(store, "record-coverage", "c-1", "--file", table_file(tmp, json.dumps({"items": it, "noQuestionReason": "issue đã đủ rõ"}), "c6.json"))
+        assert "B2.5" not in show(store, "c-1")["invalidatedSteps"]
+        # sau 2 vòng rà vẫn còn lỗi chặn: được hỏi Xác nhận, phần tồn đi vào payload
+        run(store, "record-requirement", "c-1", "--coverage-map", '{"map":{"R1":["SHOP-SRC-001"]}}', "--table-file", table_file(tmp))
+        blk = json.dumps({"reviewer": "subagent", "inputs": ["x"], "findings": [{"ref": "SHOP-SRC-001", "severity": "block", "issue": "80% sai"}]})
+        review(store, tmp, "c-1", blk); run(store, "confirm-requirement", "c-1", "--fingerprint", fp(store, "c-1"), "--quote", "Xác nhận", ok=False)
+        review(store, tmp, "c-1", blk); run(store, "confirm-requirement", "c-1", "--fingerprint", fp(store, "c-1"), "--quote", "Xác nhận")
+        assert show(store, "c-1")["independentReview"]["openBlocking"][0]["ref"] == "SHOP-SRC-001"
+        # quay lại B2 làm mất hiệu lực B2.5
+        run(store, "set-phase", "c-1", "MOCKUP_REVIEW"); assert show(store, "c-1")["coverage"] is None
+
 def test_builder_v1_v2():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -235,7 +286,7 @@ def test_gateway_assets():
     assert "Claude Design (canvas)" in orchestrator and "Không có fallback HTML." in orchestrator
     assert "Sơ đồ nối màn hình" in orchestrator and "T<số bước>" in orchestrator
     assert "build_error_report.py" in orchestrator
-    for marker in ("B1 —", "B1.5 —", "B2 —", "B3 —", "B4 —", "B5 —", "B6 —", "Cổng cứng", "record-clarification", "record-live-probe", "record-proposal", "approve-mockup", "record-requirement", "confirm-requirement", "save_requirement", "record-saved-requirement", "declare_requirement_changes", "progress", "Phát hiện sai bước", "Khung hỏi", "tối thiểu 1", "tối đa 3", "9 cột"):
+    for marker in ("B1 —", "B1.5 —", "B2 —", "B2.5 —", "B3 —", "record-coverage", "record-independent-review", "usecase-rules.md", "tối đa 5", "B4 —", "B5 —", "B6 —", "Cổng cứng", "record-clarification", "record-live-probe", "record-proposal", "approve-mockup", "record-requirement", "confirm-requirement", "save_requirement", "record-saved-requirement", "declare_requirement_changes", "progress", "Phát hiện sai bước", "Khung hỏi", "tối thiểu 1", "tối đa 3", "9 cột"):
         assert marker in orchestrator, marker
     assert "MCP preflight" in orchestrator and "mcp_pref.py" in orchestrator
     assert "không từ chối" in orchestrator and "Không có skill riêng cho giỏ hàng" in orchestrator and "clarificationCount" in orchestrator
@@ -245,7 +296,7 @@ def test_gateway_assets():
     for name in ("tap-status","tap-screen","tap-flow","tap-config","tap-chat-display"):
         text = (ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8"); assert "Delegated-by: tap-orchestration" in text and "workItemId" in text
         if name != "tap-status": assert "requirementId" in text and "BLOCKED" in text, name
-    # plugin 3.3.0: AI không Public — không skill/reference nào còn hướng dẫn gọi publish_screen/flow/persona
+    # plugin 3.3.x: AI không Public — không skill/reference nào còn hướng dẫn gọi publish_screen/flow/persona
     import re as _re
     allowed = ("tool-index.md", "permissions.md", "renderer-pitfalls.md")
     for f in (ROOT / "skills").rglob("*.md"):
@@ -255,4 +306,4 @@ def test_gateway_assets():
                 assert _re.search(r"[Kk]hông( bao giờ)?( gọi)? `?publish|không còn gọi", line), f"{f}: {line[:120]}"
 
 if __name__ == "__main__":
-    test_full_flow(); test_clarification_rules(); test_table_rules(); test_id_stability(); test_confirmations_invalidate(); test_builder_v1_v2(); test_mcp_pref(); test_error_report(); test_gateway_assets(); print("✔ TAP orchestration tests passed")
+    test_full_flow(); test_clarification_rules(); test_table_rules(); test_id_stability(); test_coverage_rules(); test_confirmations_invalidate(); test_builder_v1_v2(); test_mcp_pref(); test_error_report(); test_gateway_assets(); print("✔ TAP orchestration tests passed")

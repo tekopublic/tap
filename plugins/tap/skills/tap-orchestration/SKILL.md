@@ -42,7 +42,8 @@ Thứ tự bắt buộc, không đảo, không bỏ bước. Trong B0–B4 chỉ
 | B1 | Làm rõ | `INTENT_ANALYSIS` | `record-clarification --questions --tenant-url` | 1-3 câu UX theo khung hỏi + địa chỉ web (hoặc `skipped:<lý do>`) |
 | B1.5 | Chạy thử web | `INTENT_ANALYSIS` | `record-live-probe --file` | `done` hoặc `skipped` kèm lý do |
 | B2 | Đề xuất + mockup | `MOCKUP_REVIEW` | `record-proposal` → `record-mockup` → `approve-mockup --quote` | người dùng nhắn đồng ý Mockup |
-| B3 | Bảng 9 cột + lưu | `REQUIREMENT_CONFIRMATION` | `record-requirement` → `confirm-requirement` → MCP `save_requirement` → `record-saved-requirement` | người dùng **Xác nhận** + có `requirementId` |
+| B2.5 | Rà soát độ phủ | `REQUIREMENT_CONFIRMATION` | `set-phase REQUIREMENT_CONFIRMATION` → `record-coverage --file` | danh sách R1..Rn + ≤5 câu hỏi đã trả lời (hoặc `noQuestionReason`) |
+| B3 | Bảng 9 cột + rà độc lập + lưu | `REQUIREMENT_CONFIRMATION` | `record-requirement --coverage-map` → sub-agent rà → `record-independent-review` → `confirm-requirement` → MCP `save_requirement` → `record-saved-requirement` | mọi R có case hoặc ghi "Chưa phủ"; rà độc lập không còn lỗi chặn (hoặc đã hết 2 vòng và liệt kê phần tồn); người dùng **Xác nhận** + có `requirementId` |
 | B4 | Chốt plan | `PLAN_FINALIZATION` → `WAITING_FOR_PLAN_APPROVAL` | `approve-plan --fingerprint <fingerprint bảng>` → `transition IMPLEMENTING` | người dùng duyệt plan |
 | B5 | Triển khai | `IMPLEMENTING` | ghi nháp mang `requirementId` → MCP `declare_requirement_changes` → `record-change`; `record-review-link` → `transition TESTING` | ≥1 thay đổi đã khai + link review |
 | B6 | Kiểm thử | `TESTING` → `COMPLETED` | `record-parity --row-ids <mọi ID>` → `transition COMPLETED` | parity passed phủ mọi dòng |
@@ -56,7 +57,7 @@ Thứ tự bắt buộc, không đảo, không bỏ bước. Trong B0–B4 chỉ
 ### B1 — Làm rõ yêu cầu, hỏi địa chỉ web
 
 - Kiểm tra hiện trạng thật bằng MCP read-only (`list_screens`, `get_screen`, `list_services`/`list_endpoints`, `list_state_transitions`, `get_theme`...), kèm R0 discovery.
-- Hỏi người dùng tối thiểu 1 và tối đa 3 câu UX, gộp trong đúng một message, mỗi câu theo **Khung hỏi** (mục 2b). Chỉ một lượt: sau câu trả lời không hỏi UX lần hai, hợp nhất câu trả lời/đề xuất và công bố assumptions.
+- Hỏi người dùng tối thiểu 1 và tối đa 3 câu UX, gộp trong đúng một message, mỗi câu theo **Khung hỏi** (mục 2b). Chỉ một lượt: sau câu trả lời không hỏi UX lần hai, hợp nhất câu trả lời/đề xuất và công bố assumptions. (Lượt hỏi độ phủ ở B2.5 là lượt riêng, tối đa 5 câu, không tính vào đây.)
 - **Luôn hỏi thêm 1 câu bắt buộc** (không tính vào trần 3 câu, cùng message): "Địa chỉ web storefront đang chạy cho tenant này là gì? AI sẽ dùng địa chỉ đó để tự chạy các yêu cầu (dạng use case) và gộp kết quả thực tế vào phân tích trước khi vẽ mockup." Phương án: A. địa chỉ đề xuất từ `tap-core/references/targets.md` theo tenant/server đang dùng (Đề xuất); B. địa chỉ khác do người dùng nhập; C. bỏ qua (mockup sẽ ghi rõ chưa đối chiếu web thật).
 - Ghi bằng `record-clarification --tenant-url <url | skipped:<lý do>>` (`clarificationCount` = 1). Thiếu target, delete mơ hồ, payment/order thật, external disclosure hoặc permission failure vẫn BLOCKED theo `tap-core`, không suy đoán.
 
@@ -81,18 +82,28 @@ Thứ tự bắt buộc, không đảo, không bỏ bước. Trong B0–B4 chỉ
 - **Không chờ người dùng yêu cầu:** tạo thẳng Claude Design ngay sau đề xuất, không tạo HTML/Markdown/ảnh rồi hỏi lại. Không có fallback HTML. Nếu môi trường không tạo được Claude Design (Claude Code CLI/VS Code), dừng `BLOCKED` và báo "cần chạy trong Claude Desktop/claude.ai để tạo Claude Design canvas". Cấm `scripts/build_journey_mockup.py` (legacy), cấm MCP preview/save/publish để làm mockup.
 - Mọi yêu cầu sửa của người dùng ("sửa Screen 02/lane Empty state/CTA") là iteration: cập nhật mockup, `record-mockup` lại, không tăng clarificationCount, lặp đến khi người dùng nhắn đồng ý Mockup, rồi `approve-mockup --quote "<nguyên văn>"`.
 
-### B3 — Bảng Requirement 9 cột + lưu qua MCP
+### B2.5 — Rà soát độ phủ yêu cầu (sau khi Mockup được đồng ý)
 
-Chuyển `REQUIREMENT_CONFIRMATION`, tổng hợp toàn bộ chat + đề xuất + live probe + mockup đã chốt thành bảng markdown, **in thẳng ra ô chat** (không chỉ ghi file/dẫn link), rồi lưu cùng nội dung bằng `record-requirement --table-file`:
+`set-phase REQUIREMENT_CONFIRMATION`. Đọc lại nguyên văn yêu cầu gốc, tách thành danh sách mục `R1, R2…` (mỗi gạch đầu dòng / tiêu chí / ràng buộc là một mục, thà thừa còn hơn sót), in ra chat kèm **tối đa 5 câu** hỏi theo Khung hỏi trong một message, rồi `record-coverage --file`. Làm đúng theo [coverage-review.md](references/coverage-review.md) mục 1.
+
+### B3 — Bảng Requirement 9 cột + rà độc lập + lưu qua MCP
+
+**Đọc [usecase-rules.md](references/usecase-rules.md) trước khi viết bảng** và áp đủ mục 3–6 (ID, Scope, Trigger, R1–R13, cách viết ô, Pass rate). Viết nhiều case để phủ hết: mỗi mục R ít nhất một case, cộng các case quy tắc bắt buộc (trạng thái dữ liệu, thất bại/từ chối, bốn nhánh wait point, chip/card, cặp chat–màn hình).
+
+Ở `REQUIREMENT_CONFIRMATION` (sau B2.5), tổng hợp toàn bộ chat + đề xuất + live probe + mockup đã chốt thành bảng markdown, **in thẳng ra ô chat** (không chỉ ghi file/dẫn link), rồi lưu cùng nội dung bằng `record-requirement --table-file`:
 
 - **9 cột đúng thứ tự:** `ID | Scope | Trigger | Điều kiện trước | Chat panel | Display panel | Hệ thống | Không được làm | Pass rate` (key khi lưu: `id, scope, trigger, precondition, chatPanel, displayPanel, system, mustNot, passRate`). Ô không để trống.
 - **ID:** `<MODULE>-<FAMILY>-<nnn><X>` (vd `CART-DEL-017C`). ID ổn định từ lần lưu đầu: sửa ô/đổi thứ tự giữ ID; usecase mới lấy số lớn nhất (tính cả ID đã xoá) + 1; case mới lấy chữ cái kế tiếp của usecase; ID đã xoá không dùng lại. Script kiểm, sai thì sửa bảng.
 - **Scope:** bắt đầu bằng `issue <số>`, `Change`, `Proposed` hoặc `Deferred post-MVP` (viết `issue 319`, không `#319`).
 - **Trigger:** bắt đầu bằng channel tag `[Chat]`, `[Chat chip]`, `[Chat click]`, `[Display click]`, `[System]`, kèm `(T<n>)` của transition (mọi transition trong mockup phải có dòng).
-- **Điều kiện trước / Hệ thống:** điền từ hiện trạng thật (MCP + live probe): trạng thái/dữ liệu cần có; lưu/đọc, đổi state, thứ mang sang bước sau. **Chat panel / Display panel** đúng như mockup. **Không được làm** = các điều cấm.
-- **Pass rate:** `100%` hoặc `80%`; `80%` chỉ cho Trigger `[Chat]` không gắn chip (AI phải phán đoán: hỏi lại, nhiều yêu cầu, tư vấn).
-- Dưới bảng: assumptions còn hiệu lực, phần "giữ nguyên", điểm còn chưa rõ (theo Khung hỏi); kết thúc bằng đúng một câu: "Bảng trên đã đúng là Yêu cầu (requirement) và Mockup bạn muốn chưa? Trả lời **Xác nhận** để tiếp tục, hoặc nêu dòng cần sửa."
-- Người dùng sửa bảng: sửa, in lại, `record-requirement` lại, hỏi xác nhận lại (đổi UI/flow thì quay B2). Chỉ khi có xác nhận rõ ràng mới `confirm-requirement --fingerprint --quote`. Im lặng, "mockup đẹp" ở B2 hay approval cũ không thay thế bước này.
+- **Điều kiện trước / Hệ thống:** điền từ hiện trạng thật (MCP + live probe): trạng thái/dữ liệu cần có; lưu/đọc, đổi state, thứ mang sang bước sau. Không bao giờ chỉ ghi `Sau <ID>`: nói điều đã xảy ra và AI đang chờ gì rồi mới `(Sau <ID>)` (script từ chối). **Chat panel / Display panel** đúng như mockup. **Không được làm** = các điều cấm.
+- **Pass rate:** `100%` hoặc `80%` theo usecase-rules mục 6. Câu chat rõ ràng, nêu đúng đối tượng → `100%`. `80%` chỉ cho Trigger `[Chat]` không gắn chip mà AI phải phán đoán (hỏi lại, nhiều yêu cầu, tư vấn).
+- **Tự kiểm** theo usecase-rules mục 8 trước khi in.
+- **Ma trận phủ** (in ngay dưới bảng): `R | Nội dung | ID case`. Mục chưa có case ghi vào khối **Chưa phủ** kèm lý do (vd chờ issue khác, ngoài scope → `Proposed`). Ghi bằng `record-requirement --coverage-map '{"map":{"R1":["CART-ADD-001A"]},"uncovered":{"R5":"lý do"}}'`; script từ chối khi một R vừa không có ID vừa không có lý do, hoặc trỏ ID không có trong bảng.
+
+- **Rà độc lập (bắt buộc trước khi hỏi Xác nhận):** sau `record-requirement`, giao một sub-agent mới rà bảng so với yêu cầu gốc, danh sách R và [usecase-rules.md](references/usecase-rules.md); ghi kết quả bằng `record-independent-review`; còn lỗi chặn thì sửa và rà lại, tối đa 2 vòng. Đầu vào, prompt mẫu, schema kết quả: [coverage-review.md](references/coverage-review.md) mục 2.
+- Dưới bảng: ma trận phủ + **Chưa phủ**, kết quả rà độc lập (còn tồn / cảnh báo), assumptions còn hiệu lực, phần "giữ nguyên", điểm còn chưa rõ (theo Khung hỏi); kết thúc bằng đúng một câu: "Bảng trên đã đúng là Yêu cầu (requirement) và Mockup bạn muốn chưa? Trả lời **Xác nhận** để tiếp tục, hoặc nêu dòng cần sửa."
+- Người dùng sửa bảng: sửa, in lại, `record-requirement` lại, rà độc lập lại, hỏi xác nhận lại (đổi UI/flow thì quay B2; thêm/bớt yêu cầu thì quay B2.5). Chỉ khi có xác nhận rõ ràng mới `confirm-requirement --fingerprint --quote`. Im lặng, "mockup đẹp" ở B2 hay approval cũ không thay thế bước này.
 - **Lưu:** ngay sau `confirm-requirement`, lấy `saveRequirementPayload` trong output script và gọi MCP `save_requirement` với `title`, `requestSummary`, `originalRequest`, `assumptions`, `requirementTable` (9 key), `mockupContract`, `mockupCanvasUrl`, `idempotencyKey`, `fingerprint`; có `requirementId` (sửa bản draft/implementing) hoặc `supersedesId` (sửa bản đã Public) thì truyền đúng như payload. Thành công → `record-saved-requirement --requirement-id <id trả về> --fingerprint <fp>`.
 - `save_requirement` lỗi (`ok:false`, permission, tool không có) → BLOCKED theo `tap-core` + báo lỗi mục 0b, theo Khung hỏi. **Không** lưu file local thay thế, không đi tiếp B4.
 
@@ -115,13 +126,13 @@ Tester replay fixture trace; parity chỉ passed khi chat, display, screen/lane/
 Áp dụng khi: script trả `ok:false` (exit 2), AI định nhảy bước, người dùng đòi bỏ bước ("sửa nhanh luôn, khỏi mockup"), sửa đề xuất/mockup/bảng sau khi đã duyệt, hoặc tool MCP lỗi giữa chừng.
 
 1. **Dừng ngay**, không làm tiếp hành động đang định làm.
-2. Chạy `progress <workId>` (hoặc lấy trường `progress` trong JSON lỗi) và **in nguyên bảng tiến trình** ra chat — đủ 8 bước, trạng thái `Xong / Đang ở đây / Chưa làm / Bị mất hiệu lực`. Không chỉ dẫn file/link.
+2. Chạy `progress <workId>` (hoặc lấy trường `progress` trong JSON lỗi) và **in nguyên bảng tiến trình** ra chat — đủ 9 bước (B0, B1, B1.5, B2, B2.5, B3–B6), trạng thái `Xong / Đang ở đây / Chưa làm / Bị mất hiệu lực`. Không chỉ dẫn file/link.
 3. Nói một câu: đang ở bước nào (`currentStep`), sai ở đâu (`error`), thiếu cổng nào (`missingGates`).
 4. Theo Khung hỏi: nêu phương án (vd A. quay về làm đúng bước `currentStep` — Đề xuất; B. huỷ yêu cầu), rồi quay về đúng bước đó và làm lại theo thứ tự. Người dùng đòi bỏ bước: giải thích ngắn mọi yêu cầu có ghi phải đi đủ B0–B6, không có ngoại lệ.
 
 ## 2b. Khung hỏi / nêu vấn đề
 
-Mọi chỗ AI hỏi hoặc báo vấn đề (câu hỏi B1 kể cả câu địa chỉ web, lệch ở live probe, điểm chưa rõ trong mockup/bảng, lỗi MCP/permission, bị chặn do sai bước, xung đột với Requirement đã Public) — **không bao giờ chỉ nêu vấn đề hoặc hỏi trống**:
+Mọi chỗ AI hỏi hoặc báo vấn đề (câu hỏi B1 kể cả câu địa chỉ web, câu hỏi độ phủ B2.5, lệch ở live probe, điểm chưa rõ trong mockup/bảng, lỗi MCP/permission, bị chặn do sai bước, xung đột với Requirement đã Public) — **không bao giờ chỉ nêu vấn đề hoặc hỏi trống**:
 
 - **Vấn đề / câu hỏi:** 1 câu.
 - **Phương án:** 2–4 phương án A, B, C…, mỗi phương án 1 dòng giải thích hệ quả (UX, dữ liệu, rủi ro, công sức).

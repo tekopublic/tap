@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Persist resumable TAP orchestration work items without external services.
 
-Plugin 3.3.0: mọi yêu cầu có ghi phải đi đủ B0 → B1 → B1.5 → B2 → B3 → B4 → B5 → B6.
+Plugin 3.3.1: mọi yêu cầu có ghi phải đi đủ B0 → B1 → B1.5 → B2 → B2.5 → B3 → B4 → B5 → B6.
+B2.5 chốt danh sách mục yêu cầu (R1, R2...) + ≤5 câu hỏi; B3 bắt buộc ma trận phủ R → ID
+và một lượt rà độc lập (sub-agent) trên đúng bảng sẽ hỏi Xác nhận.
 Lệnh sai thứ tự bị từ chối (exit 2) với JSON {currentStep, attemptedStep, missingGates,
 nextAction, progress} để gateway in lại bảng tiến trình cho người dùng.
 """
@@ -31,6 +33,11 @@ REQ_HEADER_ALIASES = [
 REQ_HEADER_LABEL = "ID | Scope | Trigger | Điều kiện trước | Chat panel | Display panel | Hệ thống | Không được làm | Pass rate"
 SCOPE_RE = re.compile(r"^(issue \d+|Change|Proposed|Deferred post-MVP)(?=$|[\s,;·(🔒⏳])")
 REQ_ID_RE = re.compile(r"^([A-Z][A-Z0-9]*-[A-Z][A-Z0-9]*)-(\d{3,})([A-Z]?)$")
+COV_ID_RE = re.compile(r"^R\d+$")
+MAX_COVERAGE_QUESTIONS = 5
+MAX_REVIEW_ROUNDS = 2
+# Điều kiện trước chỉ trỏ case khác mà không nói trạng thái (vd "Sau IMP-005B") — usecase-rules §5
+BARE_AFTER_RE = re.compile(r"^\(?\s*(Sau|After)\s+[A-Z][A-Z0-9-]*\s*\)?\.?$", re.I)
 URL_RE = re.compile(r"^https?://[^\s/$.?#][^\s]*$")
 TRANSITIONS = {
     "PLANNING": {"WAITING_FOR_PLAN_APPROVAL", "IMPLEMENTING", "BLOCKED"},
@@ -46,7 +53,8 @@ STEPS = [
     ("B1", "Làm rõ yêu cầu (+ địa chỉ web tenant)"),
     ("B1.5", "Chạy thử use case trên web tenant"),
     ("B2", "Đề xuất + mockup Claude Design"),
-    ("B3", "Bảng Requirement 9 cột + save_requirement"),
+    ("B2.5", "Rà soát độ phủ yêu cầu (≤5 câu hỏi)"),
+    ("B3", "Bảng Requirement 9 cột + rà độc lập + save_requirement"),
     ("B4", "Chốt plan"),
     ("B5", "Triển khai vào bản nháp + declare_requirement_changes"),
     ("B6", "Kiểm thử parity + dẫn sang Tenant Admin để Public"),
@@ -57,7 +65,8 @@ NEXT_ACTION = {
     "B1": "hỏi 1-3 câu UX (mỗi câu có phương án + đề xuất) + câu địa chỉ web tenant, rồi record-clarification --tenant-url",
     "B1.5": "chạy thử use case trên web tenant (hoặc ghi skipped kèm lý do), rồi record-live-probe",
     "B2": "set-phase MOCKUP_REVIEW → in đề xuất + record-proposal → record-mockup → người dùng đồng ý → approve-mockup",
-    "B3": "set-phase REQUIREMENT_CONFIRMATION → in bảng 9 cột + record-requirement → người dùng Xác nhận → confirm-requirement → gọi MCP save_requirement → record-saved-requirement",
+    "B2.5": "set-phase REQUIREMENT_CONFIRMATION → tách yêu cầu thành R1..Rn, hỏi tối đa 5 câu (Khung hỏi) → record-coverage",
+    "B3": "in bảng 9 cột theo usecase-rules + ma trận phủ → record-requirement --coverage-map → sub-agent rà độc lập → record-independent-review → người dùng Xác nhận → confirm-requirement → gọi MCP save_requirement → record-saved-requirement",
     "B4": "set-phase PLAN_FINALIZATION → transition WAITING_FOR_PLAN_APPROVAL → người dùng duyệt → approve-plan → transition IMPLEMENTING",
     "B5": "ghi nháp mang requirementId → gọi MCP declare_requirement_changes → record-change; record-review-link → transition TESTING",
     "B6": "record-parity --row-ids <mọi ID> → transition COMPLETED; dẫn người dùng sang Tenant Admin để Public",
@@ -127,9 +136,21 @@ def mockup_approved_valid(data):
     return bool(data.get("proposal") and a and m and a.get("mockupHash") == mockup_hash(m))
 
 
+def coverage_valid(data):
+    c, a = data.get("coverage"), data.get("mockupApproved")
+    return bool(mockup_approved_valid(data) and c and a and c.get("mockupHash") == a.get("mockupHash"))
+
+
+def review_valid(data):
+    v, r = data.get("independentReview"), data.get("requirement")
+    if not (v and r and v.get("fingerprint") == r.get("fingerprint")):
+        return False
+    return not v.get("openBlocking") or v.get("round", 0) >= MAX_REVIEW_ROUNDS
+
+
 def requirement_confirmed_valid(data):
     c, r = data.get("requirementConfirmed"), data.get("requirement")
-    return bool(mockup_approved_valid(data) and c and r and c.get("fingerprint") == r.get("fingerprint"))
+    return bool(coverage_valid(data) and c and r and c.get("fingerprint") == r.get("fingerprint"))
 
 
 def requirement_saved_valid(data):
@@ -154,6 +175,8 @@ def step_done(data, code):
         return bool(data.get("clarification") and data.get("liveProbe"))
     if code == "B2":
         return bool(data.get("liveProbe")) and mockup_approved_valid(data)
+    if code == "B2.5":
+        return coverage_valid(data)
     if code == "B3":
         return requirement_saved_valid(data)
     if code == "B4":
@@ -192,6 +215,7 @@ def step_evidence(data, code):
         "B1": (data.get("clarification") or {}).get("tenantUrl", ""),
         "B1.5": (data.get("liveProbe") or {}).get("summary", ""),
         "B2": f"\"{(data.get('mockupApproved') or {}).get('quote', '')}\"" if data.get("mockupApproved") else "",
+        "B2.5": (f"{len(data['coverage']['items'])} mục R, {len(data['coverage']['questions'])} câu hỏi" if data.get("coverage") else ""),
         "B3": f"requirementId `{(data.get('savedRequirement') or {}).get('requirementId', '')}`" if data.get("savedRequirement") else "",
         "B4": f"plan `{(data.get('planApproval') or {}).get('fingerprint', '')}`" if data.get("planApproval") else "",
         "B5": (f"{len(data.get('changes') or [])} thay đổi đã khai" + (f", review {data['reviewLink']}" if data.get("reviewLink") else "")) if data.get("changes") else "",
@@ -264,6 +288,8 @@ def validate_rows(rows):
         rid = r["id"]
         if not REQ_ID_RE.match(rid):
             raise ValueError(f"dòng {i}: ID `{rid}` sai định dạng <MODULE>-<FAMILY>-<nnn><X> (vd CART-DEL-017C)")
+        if BARE_AFTER_RE.match(r["precondition"]):
+            raise ValueError(f"dòng {i} ({rid}): Điều kiện trước chỉ ghi `{r['precondition']}` — phải nói bằng lời điều đã xảy ra và AI đang chờ gì, rồi mới `(Sau <ID>)` (usecase-rules §5)")
         if rid in seen:
             raise ValueError(f"dòng {i}: ID `{rid}` bị trùng trong bảng")
         seen.add(rid)
@@ -325,6 +351,86 @@ def validate_questions(questions):
             raise ValueError(f"câu {i}: phải có `options` gồm ít nhất 2 phương án (kèm giải thích hệ quả)")
         if not str(q.get("recommended", "")).strip() or not str(q.get("reason", "")).strip():
             raise ValueError(f"câu {i}: phải có `recommended` (phương án đề xuất) và `reason` (lý do)")
+
+
+def validate_question_list(questions, lo, hi, label):
+    if not isinstance(questions, list) or not lo <= len(questions) <= hi:
+        raise ValueError(f"{label}: phải có từ {lo} tới {hi} câu")
+    for i, q in enumerate(questions, 1):
+        if not isinstance(q, dict) or not str(q.get("q", "")).strip():
+            raise ValueError(f"{label} câu {i}: thiếu nội dung `q`")
+        opts = q.get("options")
+        if not isinstance(opts, list) or len([o for o in opts if str(o).strip()]) < 2:
+            raise ValueError(f"{label} câu {i}: phải có `options` gồm ít nhất 2 phương án")
+        if not str(q.get("recommended", "")).strip() or not str(q.get("reason", "")).strip():
+            raise ValueError(f"{label} câu {i}: phải có `recommended` và `reason`")
+
+
+def validate_coverage(cov):
+    """B2.5: danh sách mục yêu cầu R1..Rn + câu hỏi làm rõ (≤5)."""
+    if not isinstance(cov, dict):
+        raise ValueError("coverage phải là JSON object {items, questions, noQuestionReason?}")
+    items = cov.get("items")
+    if not isinstance(items, list) or not items:
+        raise ValueError("coverage phải có ít nhất 1 mục yêu cầu trong `items`")
+    seen = set()
+    for i, it in enumerate(items, 1):
+        rid = str((it or {}).get("id", ""))
+        if not COV_ID_RE.match(rid):
+            raise ValueError(f"mục {i}: id phải dạng R<số> (R1, R2...)")
+        if rid in seen:
+            raise ValueError(f"mục {i}: id `{rid}` bị trùng")
+        seen.add(rid)
+        for k in ("text", "source"):
+            if not str(it.get(k, "")).strip():
+                raise ValueError(f"mục {rid}: thiếu `{k}` (source: issue / chat / mockup / probe...)")
+    questions = cov.get("questions") or []
+    if questions:
+        validate_question_list(questions, 1, MAX_COVERAGE_QUESTIONS, "câu hỏi B2.5")
+    elif not str(cov.get("noQuestionReason", "")).strip():
+        raise ValueError("B2.5 không hỏi câu nào thì phải ghi `noQuestionReason` (vì sao yêu cầu đã đủ rõ)")
+    return [it["id"] for it in items]
+
+
+def validate_coverage_map(cmap, item_ids, row_ids):
+    """B3: mỗi mục R phải trỏ tới ≥1 ID có trong bảng, hoặc nằm trong `uncovered` kèm lý do."""
+    if not isinstance(cmap, dict) or not isinstance(cmap.get("map", {}), dict):
+        raise ValueError("coverage-map phải dạng {\"map\": {\"R1\": [\"<ID>\"...]}, \"uncovered\": {\"R5\": \"lý do\"}}")
+    mapping, uncovered = cmap.get("map") or {}, cmap.get("uncovered") or {}
+    unknown_r = sorted((set(mapping) | set(uncovered)) - set(item_ids))
+    if unknown_r:
+        raise ValueError(f"coverage-map có mục không nằm trong danh sách B2.5: {', '.join(unknown_r)}")
+    rows = set(row_ids)
+    for rid, ids in mapping.items():
+        if not isinstance(ids, list):
+            raise ValueError(f"{rid}: giá trị phải là danh sách ID")
+        bad = sorted(set(ids) - rows)
+        if bad:
+            raise ValueError(f"{rid}: ID không có trong bảng: {', '.join(bad)}")
+    missing = [r for r in item_ids if not mapping.get(r) and not str(uncovered.get(r, "")).strip()]
+    if missing:
+        raise ValueError(f"mục yêu cầu chưa có case và chưa liệt kê 'Chưa phủ' kèm lý do: {', '.join(missing)}")
+    return {r: mapping.get(r) or [] for r in item_ids}, {r: uncovered[r] for r in item_ids if not mapping.get(r)}
+
+
+def validate_review(rev, row_ids, item_ids):
+    if not isinstance(rev, dict) or rev.get("reviewer") != "subagent":
+        raise ValueError("rà độc lập phải do sub-agent làm: `reviewer` = \"subagent\"")
+    for k in ("inputs",):
+        if not isinstance(rev.get(k), list) or not rev[k]:
+            raise ValueError("phải ghi `inputs` (danh sách đầu vào đã giao cho sub-agent)")
+    findings = rev.get("findings")
+    if not isinstance(findings, list):
+        raise ValueError("`findings` phải là danh sách (rỗng nếu không có lỗi)")
+    refs = set(row_ids) | set(item_ids) | {"TABLE"}
+    for i, f in enumerate(findings, 1):
+        if f.get("severity") not in ("block", "warn"):
+            raise ValueError(f"finding {i}: severity chỉ nhận block / warn")
+        if f.get("ref") not in refs:
+            raise ValueError(f"finding {i}: ref phải là ID dòng, mã R hoặc TABLE")
+        if not str(f.get("issue", "")).strip():
+            raise ValueError(f"finding {i}: thiếu `issue`")
+    return [f for f in findings if f["severity"] == "block"]
 
 
 def validate_probe(probe, tenant_url):
@@ -445,13 +551,20 @@ def build_parser():
     am = sub.add_parser("approve-mockup")
     am.add_argument("work_id")
     am.add_argument("--quote", required=True, help="Nguyên văn người dùng đồng ý với Mockup")
+    cov = sub.add_parser("record-coverage")
+    cov.add_argument("work_id")
+    cov.add_argument("--file", required=True, help='JSON {"items":[{"id":"R1","text":"...","source":"issue|chat|mockup|probe"}],"questions":[≤5 câu theo Khung hỏi],"noQuestionReason"?}')
     rr = sub.add_parser("record-requirement")
     rr.add_argument("work_id")
+    rr.add_argument("--coverage-map", required=True, help='JSON {"map":{"R1":["<ID>"]},"uncovered":{"R5":"lý do"}} (chuỗi JSON hoặc đường dẫn file)')
     rr.add_argument("--table-file", required=True, help="File markdown bảng Requirement 9 cột đã in ra chat")
     cr = sub.add_parser("confirm-requirement")
     cr.add_argument("work_id")
     cr.add_argument("--fingerprint", required=True)
     cr.add_argument("--quote", required=True, help="Nguyên văn người dùng xác nhận requirement + mockup")
+    ir = sub.add_parser("record-independent-review")
+    ir.add_argument("work_id")
+    ir.add_argument("--file", required=True, help='JSON {"reviewer":"subagent","inputs":[...],"findings":[{"ref","severity":"block|warn","issue","suggestion"}]}')
     sr = sub.add_parser("record-saved-requirement")
     sr.add_argument("work_id")
     sr.add_argument("--requirement-id", required=True, help="requirementId do MCP save_requirement trả về")
@@ -519,7 +632,8 @@ def cmd_create(args, path):
             "steps": {}, "tests": [], "mockup": None, "clarification": None, "liveProbe": None,
             "proposal": None, "mockupApproved": None, "requirement": None, "requirementConfirmed": None,
             "savedRequirement": None, "baseRequirement": base, "idHistory": history,
-            "retiredIds": split_ids(args.retired_ids), "planApproval": None, "changes": [],
+            "retiredIds": split_ids(args.retired_ids), "coverage": None, "independentReview": None,
+            "reviewRounds": 0, "planApproval": None, "changes": [],
             "reviewLink": None, "parity": [], "invalidatedSteps": [], "events": []}
     event(data, "created", base["requirementId"] if base else "")
     return data
@@ -539,6 +653,7 @@ def cmd_transition(args, data):
             gate(data.get("clarification"), "B1 chưa xong: cần record-clarification", "B4", "B1")
             gate(data.get("liveProbe"), "B1.5 chưa xong: cần record-live-probe (done hoặc skipped)", "B4", "B1.5")
             gate(mockup_approved_valid(data), "B2 chưa xong: cần record-proposal, record-mockup rồi approve-mockup", "B4", "B2")
+            gate(coverage_valid(data), "B2.5 chưa xong: cần record-coverage", "B4", "B2.5")
             gate(requirement_confirmed_valid(data), "B3 chưa xong: cần record-requirement rồi confirm-requirement", "B4", "B3")
             gate(requirement_saved_valid(data), "B3 chưa xong: cần gọi MCP save_requirement rồi record-saved-requirement", "B4", "B3")
             gate(data["phase"] == "PLAN_FINALIZATION", "cần set-phase PLAN_FINALIZATION trước plan approval", "B4", "B4")
@@ -561,14 +676,14 @@ def cmd_transition(args, data):
 def cmd_set_phase(args, data):
     gate(data["state"] == "PLANNING", "chỉ đổi phase khi work item đang PLANNING", None)
     cur, new = PLANNING_PHASES.index(data["phase"]), PLANNING_PHASES.index(args.phase)
-    target_step = {"INTENT_ANALYSIS": "B1.5", "MOCKUP_REVIEW": "B2", "REQUIREMENT_CONFIRMATION": "B3", "PLAN_FINALIZATION": "B4"}[args.phase]
+    target_step = {"INTENT_ANALYSIS": "B1.5", "MOCKUP_REVIEW": "B2", "REQUIREMENT_CONFIRMATION": "B2.5", "PLAN_FINALIZATION": "B4"}[args.phase]
     if gated(data):
         gate(new <= cur + 1, f"không được bỏ qua bước: {data['phase']} → {args.phase}", target_step, current_step(data))
         if args.phase == "MOCKUP_REVIEW" and new > cur:
             gate(data.get("clarification"), "B1 chưa xong: cần record-clarification trước khi vào B2", "B2", "B1")
             gate(data.get("liveProbe"), "B1.5 chưa xong: cần record-live-probe (done hoặc skipped) trước khi vào B2", "B2", "B1.5")
         if args.phase == "REQUIREMENT_CONFIRMATION" and new > cur:
-            gate(mockup_approved_valid(data), "B2 chưa xong: cần record-proposal + approve-mockup trước khi vào B3", "B3", "B2")
+            gate(mockup_approved_valid(data), "B2 chưa xong: cần record-proposal + approve-mockup trước khi vào B2.5", "B2.5", "B2")
         if args.phase == "PLAN_FINALIZATION":
             gate(requirement_confirmed_valid(data), "B3 chưa xong: cần confirm-requirement trước PLAN_FINALIZATION", "B4", "B3")
             gate(requirement_saved_valid(data), "B3 chưa xong: cần save_requirement + record-saved-requirement trước PLAN_FINALIZATION", "B4", "B3")
@@ -576,11 +691,11 @@ def cmd_set_phase(args, data):
             invalidate(data, "requirementConfirmed", "planApproval")
             if args.phase == "INTENT_ANALYSIS":
                 # chỉ để chạy lại live probe; không mở lượt hỏi UX thứ 2
-                invalidate(data, "liveProbe", "proposal", "mockupApproved", "requirement")
+                invalidate(data, "liveProbe", "proposal", "mockupApproved", "coverage", "requirement", "independentReview")
             elif args.phase == "MOCKUP_REVIEW":
-                invalidate(data, "mockupApproved", "requirement")
+                invalidate(data, "mockupApproved", "coverage", "requirement", "independentReview")
             else:
-                invalidate(data, "requirement")
+                invalidate(data, "requirement", "independentReview")
             event(data, "invalidate", f"quay lại {args.phase}")
     data["phase"] = args.phase
     event(data, "phase", args.phase)
@@ -615,7 +730,7 @@ def cmd_live_probe(args, data):
         summary = validate_probe(probe, data["clarification"]["tenantUrl"])
     except ValueError as exc:
         raise GateError(str(exc), "B1.5", ["B1.5"])
-    invalidate(data, "proposal", "mockupApproved", "requirement", "requirementConfirmed", "planApproval")
+    invalidate(data, "proposal", "mockupApproved", "coverage", "requirement", "independentReview", "requirementConfirmed", "planApproval")
     data["liveProbe"] = {**probe, "summary": summary, "recordedAt": now()}
     event(data, "live-probe", summary)
 
@@ -625,7 +740,7 @@ def cmd_proposal(args, data):
     gate(data.get("liveProbe"), "B1.5 chưa xong: đề xuất phải gộp kết quả live probe", "B2", "B1.5")
     text = read_file(args.file, "proposal").strip()
     gate(text, "đề xuất rỗng", "B2", "B2")
-    invalidate(data, "mockupApproved", "requirement", "requirementConfirmed", "planApproval")
+    invalidate(data, "mockupApproved", "coverage", "requirement", "independentReview", "requirementConfirmed", "planApproval")
     data["proposal"] = {"text": text, "hash": sha(text), "recordedAt": now()}
     event(data, "proposal", data["proposal"]["hash"])
 
@@ -643,7 +758,7 @@ def cmd_mockup(args, data):
     data["mockup"] = {"source": args.source, "artifactUrl": args.artifact_url,
                       "artifactId": args.artifact_id, "contract": contract,
                       "recordedAt": now(), **metadata}
-    invalidate(data, "mockupApproved", "requirement", "requirementConfirmed", "planApproval")
+    invalidate(data, "mockupApproved", "coverage", "requirement", "independentReview", "requirementConfirmed", "planApproval")
     event(data, "mockup", args.source)
 
 
@@ -652,7 +767,7 @@ def cmd_approve_mockup(args, data):
     gate(data.get("mockup"), "chưa có mockup để duyệt", "B2", "B2")
     gate(args.quote.strip(), "cần nguyên văn người dùng đồng ý Mockup", "B2", "B2")
     data["mockupApproved"] = {"quote": args.quote, "mockupHash": mockup_hash(data["mockup"]), "at": now()}
-    invalidate(data, "requirement", "requirementConfirmed", "planApproval")
+    invalidate(data, "coverage", "requirement", "independentReview", "requirementConfirmed", "planApproval")
     event(data, "mockup-approved", data["mockupApproved"]["mockupHash"])
 
 
@@ -660,10 +775,14 @@ def cmd_requirement(args, data):
     gate(data["phase"] == "REQUIREMENT_CONFIRMATION" and data["state"] == "PLANNING",
          "record-requirement chỉ trong PLANNING/REQUIREMENT_CONFIRMATION (B3)", "B3")
     gate(mockup_approved_valid(data), "mockup chưa được người dùng đồng ý (hoặc đã đổi sau khi duyệt)", "B3", "B2")
+    gate(coverage_valid(data), "B2.5 chưa xong: cần tách yêu cầu thành R1..Rn, hỏi (≤5 câu) rồi record-coverage", "B3", "B2.5")
     try:
         rows = parse_requirement_table(read_file(args.table_file, "bảng requirement"))
         validate_rows(rows)
         check_id_stability(rows, data.get("idHistory") or [], set(data.get("retiredIds") or []))
+        raw = args.coverage_map.strip()
+        cmap = load_json_arg(raw if raw.startswith("{") else read_file(raw, "coverage map"), "coverage map")
+        matrix, uncovered = validate_coverage_map(cmap, [it["id"] for it in data["coverage"]["items"]], [r["id"] for r in rows])
     except ValueError as exc:
         raise GateError(f"bảng requirement không hợp lệ: {exc}", "B3", ["B3"])
     triggers = [r["trigger"] for r in rows]
@@ -671,9 +790,44 @@ def cmd_requirement(args, data):
                if not any(re.search(rf"\b{label}\b", t) for t in triggers)]
     gate(not missing, f"bảng thiếu transition (cột Trigger phải ghi kèm (T<n>)): {', '.join(missing)}", "B3", "B3")
     fp = table_fingerprint(rows, data["mockupApproved"]["mockupHash"])
-    data["requirement"] = {"rows": rows, "rowCount": len(rows), "fingerprint": fp, "recordedAt": now()}
-    invalidate(data, "requirementConfirmed", "planApproval")
+    data["requirement"] = {"rows": rows, "rowCount": len(rows), "fingerprint": fp, "recordedAt": now(),
+                           "coverageMatrix": matrix, "uncovered": uncovered}
+    invalidate(data, "independentReview", "requirementConfirmed", "planApproval")
     event(data, "requirement", fp)
+
+
+def cmd_coverage(args, data):
+    gate(data["phase"] == "REQUIREMENT_CONFIRMATION" and data["state"] == "PLANNING",
+         "record-coverage chỉ trong PLANNING/REQUIREMENT_CONFIRMATION (B2.5)", "B2.5")
+    gate(mockup_approved_valid(data), "B2 chưa xong: mockup chưa được đồng ý", "B2.5", "B2")
+    cov = load_json_arg(read_file(args.file, "coverage"), "coverage")
+    try:
+        ids = validate_coverage(cov)
+    except ValueError as exc:
+        raise GateError(str(exc), "B2.5", ["B2.5"])
+    data["coverage"] = {"items": cov["items"], "questions": cov.get("questions") or [],
+                        "noQuestionReason": cov.get("noQuestionReason", ""),
+                        "mockupHash": data["mockupApproved"]["mockupHash"], "recordedAt": now()}
+    data["reviewRounds"] = 0
+    invalidate(data, "requirement", "independentReview", "requirementConfirmed", "planApproval")
+    event(data, "coverage", f"{len(ids)} mục, {len(data['coverage']['questions'])} câu hỏi")
+
+
+def cmd_independent_review(args, data):
+    gate(data["phase"] == "REQUIREMENT_CONFIRMATION" and data["state"] == "PLANNING",
+         "record-independent-review chỉ trong PLANNING/REQUIREMENT_CONFIRMATION (B3)", "B3")
+    gate(data.get("requirement"), "chưa có bảng: cần record-requirement trước khi rà độc lập", "B3", "B3")
+    rev = load_json_arg(read_file(args.file, "independent review"), "independent review")
+    try:
+        blocking = validate_review(rev, table_ids(data), [it["id"] for it in data["coverage"]["items"]])
+    except ValueError as exc:
+        raise GateError(str(exc), "B3", ["B3"])
+    rnd = int(data.get("reviewRounds") or 0) + 1
+    data["reviewRounds"] = rnd
+    data["independentReview"] = {"fingerprint": data["requirement"]["fingerprint"], "round": rnd,
+                                 "inputs": rev["inputs"], "findings": rev["findings"],
+                                 "openBlocking": blocking, "at": now()}
+    event(data, "independent-review", f"vòng {rnd}: {len(blocking)} lỗi chặn, {len(rev['findings']) - len(blocking)} cảnh báo")
 
 
 def save_payload(data):
@@ -697,6 +851,11 @@ def cmd_confirm(args, data):
     gate(data.get("requirement") and args.fingerprint == data["requirement"]["fingerprint"],
          "fingerprint không khớp bảng requirement hiện tại", "B3", "B3")
     gate(args.quote.strip(), "cần nguyên văn người dùng xác nhận", "B3", "B3")
+    rv = data.get("independentReview")
+    gate(rv and rv.get("fingerprint") == args.fingerprint,
+         "chưa rà độc lập đúng bảng này: giao sub-agent rà rồi record-independent-review trước khi hỏi Xác nhận", "B3", "B3")
+    gate(review_valid(data),
+         f"rà độc lập còn {len(rv.get('openBlocking') or [])} lỗi chặn (vòng {rv.get('round')}/{MAX_REVIEW_ROUNDS}): sửa bảng, record-requirement, rà lại", "B3", "B3")
     data["requirementConfirmed"] = {"fingerprint": args.fingerprint, "quote": args.quote, "at": now()}
     data["saveRequirementPayload"] = save_payload(data)
     event(data, "requirement-confirmed", args.fingerprint)
@@ -778,7 +937,8 @@ def main():
         handlers = {
             "transition": cmd_transition, "set-phase": cmd_set_phase, "record-clarification": cmd_clarification,
             "record-live-probe": cmd_live_probe, "record-proposal": cmd_proposal, "record-mockup": cmd_mockup,
-            "approve-mockup": cmd_approve_mockup, "record-requirement": cmd_requirement,
+            "approve-mockup": cmd_approve_mockup, "record-coverage": cmd_coverage, "record-requirement": cmd_requirement,
+            "record-independent-review": cmd_independent_review,
             "confirm-requirement": cmd_confirm, "record-saved-requirement": cmd_saved,
             "approve-plan": cmd_approve_plan, "record-change": cmd_change,
             "record-review-link": cmd_review_link, "record-parity": cmd_parity,

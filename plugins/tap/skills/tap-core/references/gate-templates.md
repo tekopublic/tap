@@ -57,7 +57,7 @@ Không bao giờ chỉ nêu vấn đề hoặc hỏi trống.
 
 Chỉ có một hướng hợp lệ (vd thiếu quyền): nêu hướng đó + việc cụ thể người dùng cần làm.
 
-## Mẫu Sai bước (plugin 3.3.0)
+## Mẫu Sai bước (plugin 3.3.1)
 
 Khi `work_item_state.py` trả `ok:false` hoặc phát hiện nhảy bước:
 
@@ -71,5 +71,36 @@ Khi `work_item_state.py` trả `ok:false` hoặc phát hiện nhảy bước:
 - **A.** Quay về làm đúng <currentStep>: <nextAction> **(Đề xuất)**
 - **B.** Huỷ yêu cầu này (không ghi gì thêm)
 
-Mọi yêu cầu có ghi phải đi đủ B0 → B6, không có ngoại lệ.
+Mọi yêu cầu có ghi phải đi đủ B0 → B6 (gồm B1.5, B2.5), không có ngoại lệ.
+```
+
+## Mẫu B2.5 Rà soát độ phủ (plugin 3.3.1)
+
+```markdown
+### Danh sách yêu cầu cần phủ
+
+| R | Nội dung | Nguồn |
+|---|---|---|
+| R1 | <một ý của yêu cầu> | issue |
+| R2 | <...> | chat |
+
+**Câu hỏi làm rõ (tối đa 5)** — mỗi câu theo Khung hỏi.
+
+Trả lời bằng chữ cái; câu không trả lời sẽ dùng phương án đề xuất.
+```
+
+## Mẫu ma trận phủ dưới bảng B3 (plugin 3.3.1)
+
+```markdown
+**Ma trận phủ**
+
+| R | Nội dung | ID case |
+|---|---|---|
+| R1 | <...> | CART-ADD-001A, CART-ADD-001B |
+
+**Chưa phủ:** R5 — <lý do> (hoặc "Không có")
+
+**Rà độc lập (vòng <n>):** <số> lỗi chặn còn tồn, <số> cảnh báo
+| Ref | Lỗi | Đề xuất |
+|---|---|---|
 ```
