@@ -10,7 +10,7 @@ Skill nền tảng nội bộ cho mọi tương tác với TAP MCP Server. Mọi
 
 ## 1. Tìm Và Gọi Tool MCP
 - Không hard-code tiền tố server (như `mcp__phongvu-tap-mcp__...`).
-- Luôn phân giải tool theo hậu tố: ví dụ cần gọi `publish_screen`, hãy tìm tool có dạng `*publish_screen` trong phiên làm việc hiện tại.
+- Luôn phân giải tool theo hậu tố: ví dụ cần gọi `save_screen`, hãy tìm tool có dạng `*save_screen` trong phiên làm việc hiện tại.
 
 ## 2. Target Guard (Bảo Vệ Môi Trường)
 - **Bước 0**: Luôn gọi `ping` để xác thực phiên, lấy thông tin account/caller và ghi `server name + ping evidence` vào work item/plan.

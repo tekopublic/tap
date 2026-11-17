@@ -27,10 +27,10 @@ Display renderer
 | Nút panel gọi nghiệp vụ | `ctx.execute` với `operationId` đã tra cứu | `list_services` → `list_endpoints` → `describe_endpoint`; đối chiếu `executeCalls` |
 | Chat thu thập dữ liệu nhiều bước | interaction-flow `parsedSchema`, tham chiếu `session_values` / `module_states` theo format server trả về | `describe_interaction_flow_format`, `preview_interaction_flow` |
 
-## Checklist trước publish
+## Checklist trước khi báo xong B5 (nháp)
 
 1. Không dùng `fetch`, URL tự chế, key session tự đặt, hay `operationId` tự đoán.
 2. `preview_screen`: `shapeCheck.ok == true`, không console error, action quan sát được khớp bảng thiết kế.
 3. `preview_interaction_flow`: field/branch mong muốn xuất hiện với cùng state test.
-4. Backup và xác nhận R2 riêng cho panel và flow.
-5. Sau publish, `get_screen` và `get_interaction_flow` phải xác nhận artifact đúng trạng thái.
+4. Backup panel và flow; cả hai lưu nháp mang `requirementId` và đã khai bằng `declare_requirement_changes`.
+5. `get_screen` và `get_interaction_flow` xác nhận nháp đúng; không `publish_*` — Public trên Tenant Admin web.

@@ -27,12 +27,10 @@
   - Đối chiếu mảng `executeCalls` với endpoint mong muốn.
   - Nếu `shapeCheck.ok == false`: Sửa lại JS blob và gọi preview lại cho đến khi sạch lỗi.
 
-### Bước 5: Cổng Xác Nhận (Gate `G`)
-- Trình bày thẻ xác nhận R2 (xem mẫu trong `gate-templates.md`).
-- Nêu rõ: Target (LOCAL), `code`, `conditions`, số lỗi console = 0, shape check đạt.
-- Chờ người dùng trả lời "yes".
+### Bước 5: Ghi Nháp (B5, đã có plan approval)
+- Gọi `save_screen(code, name, blobContent, conditions, requirementId)` — chỉ ghi nháp, shopper không thấy.
+- Gọi `declare_requirement_changes` (artifact `screen:<code>` + lý do + ID dòng) rồi `work_item_state.py record-change`.
 
-### Bước 6: Publish & Kiểm Chứng (Verify)
-- Gọi `publish_screen(code, name, blobContent, conditions)`.
-- Gọi ngay `get_screen(code)` để xác nhận `status == "published"` và nội dung blob đã được lưu.
-- Gọi `list_screens` để kiểm tra binding đã nhận diện thành công.
+### Bước 6: Kiểm Chứng Nháp
+- Gọi `preview_screen(screenCode=code)`: `shapeCheck.ok == true`, `consoleErrors` rỗng.
+- Gọi `get_screen(code)` xác nhận nháp đã lưu. Không gọi `publish_screen`; AI không Public: dừng ở bản nháp mang `requirementId`, dẫn người dùng sang **Tenant Admin web** để Public (plugin 3.3.0, Q10).

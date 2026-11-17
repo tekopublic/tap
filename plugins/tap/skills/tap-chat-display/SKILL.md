@@ -8,6 +8,8 @@ user-invocable: false
 
 **Delegated-by: tap-orchestration.** Không nhận request trực tiếp, không tạo/resume work item hoặc tự hỏi clarification/approval. Chỉ thực hiện subtask có `workItemId`, resolved scope/capability và phase từ gateway; thiếu context thì trả `BLOCKED`/route lại gateway trước mọi MCP write.
 
+**Cổng ghi (plugin 3.3.0):** trước MỌI MCP write chạy `python3 scripts/work_item_state.py show <workItemId>` và kiểm `state == IMPLEMENTING` (đã qua B0–B4) và `savedRequirement.requirementId` có giá trị. Thiếu một trong hai → trả `BLOCKED` về gateway kèm output `progress <workItemId>`, không gọi tool ghi. Mọi tool ghi nháp truyền `requirementId`. Không bao giờ gọi `publish_*` (Public chỉ trên Tenant Admin web). Báo vấn đề cho người dùng theo Khung hỏi của gateway (phương án + đề xuất).
+
 Dùng skill này cho một journey đi qua **chat** và **display panel**. Không dùng nó cho một panel độc lập (dùng `tap-screen`) hoặc một form/chat flow độc lập (dùng `tap-flow`). Đọc `tap-core` trước mọi thao tác. Qua `tap-orchestration`, mockup trước plan phải là artifact Claude Design có cả hai pane (canvas, không phải file HTML; không có fallback); `preview_screen` một mình không đủ.
 
 ## 1. Ranh Giới Runtime
@@ -44,10 +46,10 @@ Nếu có chi tiết chưa xác định, hỏi người dùng thay vì dựng li
 
 - Soạn flow bằng `parsedSchema`; tuân thủ `tap-flow` về `flowId`, validation và preview.
 - Soạn panel theo `tap-screen`: không `fetch`, `window.location` hoặc `eval`; action mạng đi qua `ctx.execute`.
-- Có thể lưu draft R1 sau khi báo rõ. Không publish một phía khi phía còn lại chưa preview được.
+- Chỉ lưu nháp (`save_screen` / `save_interaction_flow` mang `requirementId`). Không `publish_*`; AI không Public: dừng ở bản nháp mang `requirementId`, dẫn người dùng sang **Tenant Admin web** để Public (plugin 3.3.0, Q10).
 - Preview cả hai bề mặt với cùng `moduleStates`/`sessionValues`: `preview_interaction_flow` cho chat và `preview_screen` cho panel. Với panel, `shapeCheck.ok` phải là `true`, `consoleErrors` rỗng và `executeCalls` khớp state contract.
-- Backup từng artifact tương ứng, rồi verify bằng `get_*`. Khi qua `tap-orchestration`, một plan approval đã ghi rõ cả hai publish reversible thay thế Gate riêng; ngoài orchestration vẫn theo Gate R2 của `tap-core`.
+- Backup từng artifact tương ứng, rồi verify bằng `get_*`. Khai cả hai artifact bằng `declare_requirement_changes` → `record-change`.
 
 ## 5. Phản Hồi Kết Thúc
 
-Nêu rõ screen code, flowId (nếu có), state contract đã publish, action đã kiểm thử và phần chưa được kiểm thử. Không khẳng định storefront shopper đã nhận cache ngay lập tức.
+Nêu rõ screen code, flowId (nếu có), state contract đã lưu nháp, `requirementId`, link review, action đã kiểm thử và phần chưa được kiểm thử. Không khẳng định storefront shopper đã nhận cache ngay lập tức.

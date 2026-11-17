@@ -34,18 +34,13 @@ Chuẩn bị đối tượng `fields` gồm đủ 9 trường (REPLACE toàn b�
 save_persona_draft(fields=<đối tượng 9 trường>)
 ```
 
-### Bước 5 — Đối Chiếu Trước Khi Publish
+### Bước 5 — Đối Chiếu Nháp
 - Gọi lại `get_persona_draft()` để lấy giá trị đã lưu.
-- So sánh từng trường quan trọng với bản published để người dùng xác nhận thay đổi chính xác.
+- So sánh từng trường quan trọng với bản published, trình bày cho người dùng.
 
-### Bước 6 — Cổng Xác Nhận Gate `G` (R2)
-Trình bày thẻ xác nhận R2 nêu rõ các trường đã thay đổi và ảnh hưởng (có thể mất 60s mới hiệu lực).
-
-### Bước 7 — Publish & Kiểm Chứng
-```
-publish_persona()
-get_persona()  → Kiểm chứng giá trị đã cập nhật
-```
+### Bước 6 — Khai Thay Đổi, Dừng Ở Nháp
+- `declare_requirement_changes` (artifact `persona`, lý do, ID dòng) → `record-change`.
+- Không gọi `publish_persona`. AI không Public: dừng ở bản nháp mang `requirementId`, dẫn người dùng sang **Tenant Admin web** để Public (plugin 3.3.0, Q10).
 
 ---
 

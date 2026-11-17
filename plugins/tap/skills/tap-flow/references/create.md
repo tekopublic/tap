@@ -29,7 +29,6 @@
 - Nêu rõ: `flowId`, `title`, số bước đã test qua preview, endpoint submit.
 - Chờ người dùng trả lời "yes".
 
-### Bước 6: Publish & Kiểm Chứng
-- Gọi `publish_interaction_flow(flowId)`.
-- Nếu gặp `validation_error`: Đọc mảng `issues[]` $\rightarrow$ sửa `parsedSchema` $\rightarrow$ gọi `save_interaction_flow(parsedSchema, flowId)` $\rightarrow$ publish lại.
-- Gọi `get_interaction_flow(flowId)` để kiểm chứng `publishedVersion`.
+### Bước 6: Khai Thay Đổi & Kiểm Chứng Nháp
+- Gọi `declare_requirement_changes` (artifact `flow:<flowId>`, lý do, ID dòng) → `record-change`.
+- Gọi `get_interaction_flow(flowId)` xác nhận nháp đã lưu. Không gọi `publish_interaction_flow`; AI không Public: dừng ở bản nháp mang `requirementId`, dẫn người dùng sang **Tenant Admin web** để Public (plugin 3.3.0, Q10).

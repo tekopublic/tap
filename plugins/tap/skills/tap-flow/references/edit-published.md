@@ -4,7 +4,7 @@
 
 Khác với màn hình display, hệ thống Interaction Flow có cơ chế tách biệt rõ ràng giữa bản nháp (`draft`) và bản đang live (`publishedVersion`):
 - Gọi `save_interaction_flow(parsedSchema, flowId)` sẽ **chỉ ghi vào bản nháp của flow đó**.
-- Bản published của flow vẫn phục vụ người dùng bình thường cho đến khi bạn gọi `publish_interaction_flow`.
+- Bản published của flow vẫn phục vụ người dùng bình thường cho đến khi người có quyền Public trên Tenant Admin web. AI không Public: dừng ở bản nháp mang `requirementId`, dẫn người dùng sang **Tenant Admin web** để Public (plugin 3.3.0, Q10).
 
 ### Các bước thực hiện:
 1. **Bước 1 — Backup**:
@@ -12,18 +12,12 @@ Khác với màn hình display, hệ thống Interaction Flow có cơ chế tác
    - Lưu vào file backup `./.tap-backups/<UTC>-flow-<flowId>.json`.
 2. **Bước 2 — Cập nhật nháp**:
    - Chỉnh sửa `parsedSchema` theo yêu cầu mới.
-   - Gọi `save_interaction_flow(parsedSchema, flowId=flowId)`. **Bắt buộc truyền `flowId`**.
+   - Gọi `save_interaction_flow(parsedSchema, flowId=flowId, requirementId)`. **Bắt buộc truyền `flowId`**.
 3. **Bước 3 — Preview thử nghiệm**:
    - Gọi `preview_interaction_flow(flowId)` để chạy thử các nhánh mới.
-4. **Bước 4 — Cổng xác nhận Gate `G`**:
-   - Trình bày thẻ xác nhận R2 (nêu `flowId`, phiên bản hiện tại và các trường thay đổi).
-   - Chờ người dùng trả lời "yes".
-5. **Bước 5 — Publish phiên bản mới**:
-   - Gọi `publish_interaction_flow(flowId)`.
-   - Hệ thống sẽ đẩy bản nháp lên thành phiên bản published mới (version $N+1$).
-6. **Bước 6 — Khôi phục nếu có sự cố (Rollback)**:
-   - Nếu bản mới gặp sự cố: Gọi `get_interaction_flow(flowId, version=N-1)` để lấy lại schema cũ.
-   - Gọi `save_interaction_flow(old_schema, flowId)` $\rightarrow$ `publish_interaction_flow(flowId)` để quay lại phiên bản ổn định.
+4. **Bước 4 — Khai thay đổi**: `declare_requirement_changes` (artifact `flow:<flowId>`, lý do, ID dòng) → `record-change`.
+5. **Bước 5 — Kiểm chứng nháp**: `get_interaction_flow(flowId)` thấy nháp mới; bản published giữ nguyên. Không gọi `publish_interaction_flow`.
+6. **Khôi phục nếu nháp sai**: `save_interaction_flow(old_schema, flowId, requirementId)` từ file backup ở Bước 1.
 
 ---
 

@@ -22,3 +22,7 @@ Không tạo báo cáo cho lỗi do người dùng thiếu thông tin (hỏi l�
 Chạy `python3 scripts/build_error_report.py --category <loại> --server <tên> --env <LOCAL|PROD> --tenant <t> --step "<bước>" --tool <tool> --code <mã> --message "<lỗi gốc>" --work-id <id> --phase <phase> --writes "<đã ghi gì>"` rồi **in nguyên văn kết quả cho người dùng** (không tóm tắt, không bỏ khung copy). Script tự che token/secret/email/sđt; không đưa thêm payload hay nội dung chat khách.
 
 Mỗi lỗi một báo cáo; cùng một lỗi lặp trong phiên thì chỉ nhắc lại "đã có báo cáo ở trên".
+
+## Khung trình bày cho người dùng (plugin 3.3.0)
+
+Trước khung báo cáo, luôn nêu lỗi theo Khung hỏi ([gate-templates.md](gate-templates.md)): 1 câu vấn đề, 2–4 phương án kèm hệ quả, 1 phương án "(Đề xuất)" + lý do. Lỗi `save_requirement` / `declare_requirement_changes` ở B3/B5: dừng ở bước đó, in `progress`, không lưu file local thay thế và không đi tiếp.
